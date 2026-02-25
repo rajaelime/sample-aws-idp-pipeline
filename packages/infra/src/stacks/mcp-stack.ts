@@ -1,38 +1,18 @@
 import { Stack, StackProps } from 'aws-cdk-lib';
-import { Table } from 'aws-cdk-lib/aws-dynamodb';
 import { Bucket } from 'aws-cdk-lib/aws-s3';
-import { Queue } from 'aws-cdk-lib/aws-sqs';
 import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
-import {
-  SearchMcp,
-  MdMcp,
-  PdfMcp,
-  ImageMcp,
-  SSM_KEYS,
-} from ':idp-v2/common-constructs';
+import { SearchMcp, ImageMcp, SSM_KEYS } from ':idp-v2/common-constructs';
 import * as agentcore from '@aws-cdk/aws-bedrock-agentcore-alpha';
 import * as path from 'path';
 
 export class McpStack extends Stack {
   public readonly searchMcp: SearchMcp;
-  public readonly mdMcp: MdMcp;
-  public readonly pdfMcp: PdfMcp;
   public readonly imageMcp?: ImageMcp;
   public readonly gateway: agentcore.Gateway;
 
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
-
-    const backendTableName = StringParameter.valueForStringParameter(
-      this,
-      SSM_KEYS.BACKEND_TABLE_NAME,
-    );
-    const backendTable = Table.fromTableName(
-      this,
-      'BackendTable',
-      backendTableName,
-    );
 
     const agentStorageBucketName = StringParameter.valueForStringParameter(
       this,
@@ -44,27 +24,7 @@ export class McpStack extends Stack {
       agentStorageBucketName,
     );
 
-    const websocketMessageQueueArn = StringParameter.valueForStringParameter(
-      this,
-      SSM_KEYS.WEBSOCKET_MESSAGE_QUEUE_ARN,
-    );
-    const websocketMessageQueue = Queue.fromQueueArn(
-      this,
-      'WebsocketMessageQueue',
-      websocketMessageQueueArn,
-    );
-
     this.searchMcp = new SearchMcp(this, 'SearchMcp');
-    this.mdMcp = new MdMcp(this, 'MdMcp', {
-      backendTable,
-      storageBucket: agentStorageBucket,
-      websocketMessageQueue,
-    });
-    this.pdfMcp = new PdfMcp(this, 'PdfMcp', {
-      backendTable,
-      storageBucket: agentStorageBucket,
-      websocketMessageQueue,
-    });
 
     this.gateway = new agentcore.Gateway(this, 'McpGateway', {
       gatewayName: 'idp-mcp-gateway',
@@ -94,37 +54,6 @@ export class McpStack extends Stack {
     });
     this.searchMcp.function.grantInvoke(this.gateway.role);
     searchTarget.node.addDependency(this.gateway.role);
-
-    const mdTarget = this.gateway.addLambdaTarget('MdMcpTarget', {
-      gatewayTargetName: 'markdown',
-      description:
-        'Markdown processing tools: load markdown files. Use these tools when working with markdown documents.',
-      lambdaFunction: this.mdMcp.function,
-      toolSchema: agentcore.ToolSchema.fromLocalAsset(
-        path.resolve(process.cwd(), '../../packages/lambda/md-mcp/schema.json'),
-      ),
-    });
-
-    // Workaround: CDK timing issue - explicitly grant and add dependency
-    this.mdMcp.function.grantInvoke(this.gateway.role);
-    mdTarget.node.addDependency(this.gateway.role);
-
-    const pdfTarget = this.gateway.addLambdaTarget('PdfMcpTarget', {
-      gatewayTargetName: 'pdf',
-      description:
-        'PDF processing tools: extract text and extract tables from PDF documents. Use these tools when working with PDF documents.',
-      lambdaFunction: this.pdfMcp.function,
-      toolSchema: agentcore.ToolSchema.fromLocalAsset(
-        path.resolve(
-          process.cwd(),
-          '../../packages/lambda/pdf-mcp/schema.json',
-        ),
-      ),
-    });
-
-    // Workaround: CDK timing issue - explicitly grant and add dependency
-    this.pdfMcp.function.grantInvoke(this.gateway.role);
-    pdfTarget.node.addDependency(this.gateway.role);
 
     // ImageMcp is optional - enable with context: enableImageMcp=true in cdk.json
     if (this.node.tryGetContext('enableImageMcp')) {
