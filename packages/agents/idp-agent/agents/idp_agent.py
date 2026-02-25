@@ -1,4 +1,5 @@
 from contextlib import ExitStack, contextmanager
+from venv import create
 
 import boto3
 from mcp import StdioServerParameters, stdio_client
@@ -108,6 +109,7 @@ def get_agent(
         shell,
         use_llm,
         interpreter.code_interpreter,
+        create_artifact_path_tool(user_id, project_id),
     ]
 
     config = get_config()
@@ -142,7 +144,6 @@ def get_agent(
             hooks=hooks,
             session_manager=session_manager,
             agent_id=agent_id or "default",
-            max_iterations=20,
         )
 
     with ExitStack() as stack:

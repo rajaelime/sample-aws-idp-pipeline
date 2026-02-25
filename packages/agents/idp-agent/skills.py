@@ -33,14 +33,37 @@ def build_skills_registry() -> str:
         frontmatter = parse_skill_frontmatter(skill_md)
         skill_name = frontmatter.get("name", skill_md.parent.name)
         description = frontmatter.get("description", "")
+        when_to_use = frontmatter.get("whenToUse", "")
 
         logger.info(f"Registered skill: {skill_name}")
-        registry.append(
+        skill_xml = (
             f"<skill>\n"
             f"  <name>{skill_name}</name>\n"
             f"  <description>{description}</description>\n"
+        )
+        if when_to_use:
+            skill_xml += f"  <whenToUse>{when_to_use}</whenToUse>\n"
+        skill_xml += (
             f"  <location>{skill_md.resolve()}</location>\n"
+            f"  <base_directory>{skill_md.parent.resolve()}</base_directory>\n"
             f"</skill>"
         )
+        registry.append(skill_xml)
 
     return "\n".join(registry)
+
+
+def load_skill_content(skill_name: str) -> str | None:
+    """스킬의 SKILL.md 내용을 반환 (frontmatter 제외)."""
+    skill_md = SKILLS_DIR / skill_name / "SKILL.md"
+    if not skill_md.exists():
+        return None
+
+    with open(skill_md, "r") as f:
+        content = f.read()
+
+    # frontmatter 제거
+    parts = content.split("---", 2)
+    if len(parts) >= 3:
+        return parts[2].strip()
+    return content.strip()

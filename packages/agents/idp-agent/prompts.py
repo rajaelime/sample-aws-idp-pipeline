@@ -4,7 +4,7 @@ import logging
 import boto3
 
 from config import get_config
-from skills import build_skills_registry
+from skills import build_skills_registry, load_skill_content
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +84,8 @@ You have access to a skills system that extends your capabilities through dynami
 Skills follow a just-in-time loading pattern integrated with your Plan-then-Execute workflow:
 
 DISCOVERY (provided below)
-A registry of available skills with name, description, and file path.
-During the planning phase (Step 2), identify which skills are needed for each step.
+A registry of available skills with name, description, whenToUse, and file path.
+During the planning phase (Step 2), check the <whenToUse> field of each skill to identify which skills are needed for each step.
 
 LOADING (just-in-time, per step)
 Read the relevant SKILL.md using the file_read tool BEFORE executing the step that needs it.
@@ -95,12 +95,14 @@ Once a skill is loaded, you do not need to re-read it for subsequent steps.
 
 EXECUTION (internal resources)
 Skill files may reference helper scripts, templates, or assets using relative paths.
-Resolve these relative to the skill's directory (the parent directory of SKILL.md).
-Example: if skill path is `/skills/docx/SKILL.md` and it references `scripts/validate.py`,
+Resolve these relative to the skill's <base_directory>.
+Example: if base_directory is `/skills/docx` and the skill references `scripts/validate.py`,
 the full path is `/skills/docx/scripts/validate.py`.
 </how_skills_work>
 
 <skill_selection_rules>
+- Match the user's request against each skill's <whenToUse> field first. If <whenToUse> is present and matches, select that skill.
+- If multiple skills could match, prefer the one whose <whenToUse> is most specific to the user's request.
 - Read the SKILL.md BEFORE writing any code or producing any output for the step that needs it.
 - If no skill matches the task, proceed with your general knowledge.
 - If a skill's instructions conflict with the user's explicit request, follow the user.
@@ -138,6 +140,11 @@ def build_system_prompt(
     if skills_registry:
         skills_prompt = SKILLS_SYSTEM_PROMPT.replace("{{SKILLS_REGISTRY}}", skills_registry)
         system_prompt += skills_prompt
+
+    # search 스킬은 항상 프롬프트에 포함
+    search_skill_content = load_skill_content("search")
+    if search_skill_content:
+        system_prompt += f"\n{search_skill_content}\n"
 
     if agent_id and user_id and project_id:
         custom_prompt = fetch_custom_agent_prompt(user_id, project_id, agent_id)
