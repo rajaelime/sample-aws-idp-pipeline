@@ -1,9 +1,13 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import { remarkStripMdLinks } from './remark-strip-md-links.mjs';
 
 // https://astro.build/config
 export default defineConfig({
+	markdown: {
+		remarkPlugins: [remarkStripMdLinks],
+	},
 	site: 'https://aws-samples.github.io',
 	base: '/sample-aws-idp-pipeline',
 	integrations: [
