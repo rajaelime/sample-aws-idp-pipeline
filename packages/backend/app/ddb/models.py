@@ -42,6 +42,7 @@ class DocumentData(BaseModel):
     ocr_options: dict[str, Any] | None = None
     document_prompt: str | None = None
     language: str | None = None
+    transcribe_options: dict[str, Any] | None = None
 
 
 class Document(BaseModel):

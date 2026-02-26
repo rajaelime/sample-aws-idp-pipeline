@@ -2,7 +2,7 @@ import { FileText } from 'lucide-react';
 
 /** Parse message content and render artifact/document references as chips */
 export const renderMessageWithMentions = (content: string) => {
-  const mentionPattern = /\[(artifact|document):([^\]]+)\]\(([^)]+)\)/g;
+  const mentionPattern = /\[(artifact_id|document_id):([^\]]+)\]\(([^)]+)\)/g;
   const parts: (
     | string
     | { type: 'artifact' | 'document'; id: string; filename: string }
@@ -15,7 +15,7 @@ export const renderMessageWithMentions = (content: string) => {
       parts.push(content.slice(lastIndex, match.index));
     }
     parts.push({
-      type: match[1] as 'artifact' | 'document',
+      type: match[1] === 'document_id' ? 'document' : 'artifact',
       id: match[2],
       filename: match[3],
     });

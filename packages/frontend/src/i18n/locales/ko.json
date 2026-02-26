@@ -121,7 +121,9 @@
     "analysisInstructions": "지침",
     "bdaTooltip": "Amazon Bedrock을 사용하여 표, 차트, 다단 레이아웃 등 문서 구조를 분석합니다.",
     "ocrTooltip": "PaddleOCR을 사용하여 이미지 및 스캔된 PDF에서 텍스트를 추출합니다. 설정 버튼을 눌러 OCR 옵션을 변경할 수 있습니다.",
-    "transcribeTooltip": "Amazon Transcribe를 사용하여 동영상 및 오디오 파일의 음성을 텍스트로 변환합니다."
+    "transcribeTooltip": "Amazon Transcribe를 사용하여 동영상 및 오디오 파일의 음성을 텍스트로 변환합니다. 설정 버튼을 눌러 언어 옵션을 변경할 수 있습니다.",
+    "transcribe": "Transcribe",
+    "transcribeDesc": "Amazon Transcribe"
   },
   "workflow": {
     "title": "워크플로우",
@@ -284,6 +286,29 @@
       "mn": "몽골어",
       "sw": "스와힐리어"
     }
+  },
+  "transcribe": {
+    "title": "Transcribe 설정",
+    "languageMode": "언어 모드",
+    "language": "언어",
+    "languages": "언어 목록",
+    "modes": {
+      "auto": {
+        "name": "자동 감지",
+        "description": "고정된 후보 목록에서 음성 언어를 자동으로 식별합니다"
+      },
+      "direct": {
+        "name": "언어 직접 지정",
+        "description": "오디오/동영상 콘텐츠의 정확한 언어를 직접 지정합니다"
+      },
+      "multi": {
+        "name": "다국어 감지",
+        "description": "여러 언어가 포함된 콘텐츠를 감지하고 변환합니다"
+      }
+    },
+    "summaryAuto": "자동",
+    "summaryDirect": "직접",
+    "summaryMulti": "다국어"
   },
   "analysis": {
     "title": "문서 분석 지침",

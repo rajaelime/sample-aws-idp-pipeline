@@ -80,8 +80,9 @@ def start_transcription_job(
     document_id: str,
     workflow_id: str,
     file_type: str,
+    transcribe_options: dict | None = None,
 ) -> str:
-    """Start AWS Transcribe job with automatic language identification."""
+    """Start AWS Transcribe job with configurable language settings."""
     client = get_transcribe_client()
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
@@ -94,19 +95,32 @@ def start_transcription_job(
 
     media_format = MEDIA_FORMAT_MAP.get(file_type, 'mp4')
 
-    print(f'Starting transcription job: {job_name}, format={media_format}, auto language identification')
+    opts = transcribe_options or {}
+    mode = opts.get('language_mode', 'auto')
 
-    client.start_transcription_job(
-        TranscriptionJobName=job_name,
-        IdentifyLanguage=True,
-        LanguageOptions=IDENTIFY_LANGUAGE_OPTIONS,
-        MediaFormat=media_format,
-        Media={
-            'MediaFileUri': file_uri
-        },
-        OutputBucketName=TRANSCRIBE_OUTPUT_BUCKET,
-        OutputKey=output_key,
-    )
+    job_params = {
+        'TranscriptionJobName': job_name,
+        'MediaFormat': media_format,
+        'Media': {'MediaFileUri': file_uri},
+        'OutputBucketName': TRANSCRIBE_OUTPUT_BUCKET,
+        'OutputKey': output_key,
+    }
+
+    if mode == 'direct':
+        job_params['LanguageCode'] = opts.get('language_code', 'en-US')
+        print(f'Starting transcription job: {job_name}, format={media_format}, language={job_params["LanguageCode"]}')
+    elif mode == 'multi':
+        job_params['IdentifyMultipleLanguages'] = True
+        lang_opts = opts.get('language_options')
+        if lang_opts:
+            job_params['LanguageOptions'] = lang_opts
+        print(f'Starting transcription job: {job_name}, format={media_format}, multi-language={lang_opts}')
+    else:  # auto (default)
+        job_params['IdentifyLanguage'] = True
+        job_params['LanguageOptions'] = IDENTIFY_LANGUAGE_OPTIONS
+        print(f'Starting transcription job: {job_name}, format={media_format}, auto language identification')
+
+    client.start_transcription_job(**job_params)
 
     return job_name
 
@@ -199,6 +213,7 @@ def process_message(message: dict) -> dict:
     project_id = message.get('project_id')
     file_uri = message.get('file_uri')
     file_type = message.get('file_type')
+    transcribe_options = message.get('transcribe_options')
 
     print(f'Processing transcription job: workflow={workflow_id}, file={file_uri}')
 
@@ -234,6 +249,7 @@ def process_message(message: dict) -> dict:
             document_id=document_id,
             workflow_id=workflow_id,
             file_type=file_type,
+            transcribe_options=transcribe_options,
         )
 
         # Poll for completion
