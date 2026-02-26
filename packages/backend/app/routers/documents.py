@@ -33,6 +33,7 @@ class DocumentUploadRequest(BaseModel):
     ocr_options: dict[str, object] | None = None
     document_prompt: str | None = None
     language: str | None = None
+    transcribe_options: dict[str, object] | None = None
 
 
 class DocumentUploadResponse(BaseModel):
@@ -56,6 +57,7 @@ class DocumentResponse(BaseModel):
     ocr_options: dict[str, object] | None = None
     document_prompt: str | None = None
     language: str | None = None
+    transcribe_options: dict[str, object] | None = None
     created_at: str
     updated_at: str
 
@@ -76,6 +78,7 @@ class DocumentResponse(BaseModel):
             ocr_options=doc.data.ocr_options,
             document_prompt=doc.data.document_prompt,
             language=doc.data.language,
+            transcribe_options=doc.data.transcribe_options,
             created_at=doc.created_at,
             updated_at=doc.updated_at,
         )
@@ -202,6 +205,7 @@ def create_document_upload(project_id: str, request: DocumentUploadRequest) -> D
         ocr_options=request.ocr_options,
         document_prompt=request.document_prompt,
         language=request.language,
+        transcribe_options=request.transcribe_options,
     )
     put_document_item(project_id, document_id, data)
 

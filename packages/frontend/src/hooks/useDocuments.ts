@@ -485,6 +485,7 @@ export function useDocuments({
                 use_transcribe: options.use_transcribe,
                 ocr_model: options.ocr_model,
                 ocr_options: options.ocr_options,
+                transcribe_options: options.transcribe_options,
                 document_prompt: options.document_prompt,
                 language: options.language,
               }),

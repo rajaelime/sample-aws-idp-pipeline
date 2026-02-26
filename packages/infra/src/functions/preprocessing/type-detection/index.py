@@ -217,6 +217,7 @@ def distribute_to_queues(
     ocr_model: str = 'pp-ocrv5',
     ocr_options: dict | None = None,
     document_prompt: str = '',
+    transcribe_options: dict | None = None,
 ) -> dict:
     """Distribute preprocessing tasks to appropriate queues based on file type."""
     is_pdf = file_type == 'application/pdf'
@@ -295,10 +296,13 @@ def distribute_to_queues(
 
     # Transcribe Queue (Video or Audio, but not .webreq, and transcribe enabled)
     if (is_video or is_audio) and not is_webreq and use_transcribe:
-        send_to_queue(TRANSCRIBE_QUEUE_URL, {
+        transcribe_msg = {
             **base_message,
             'processor': PreprocessType.TRANSCRIBE,
-        })
+        }
+        if transcribe_options:
+            transcribe_msg['transcribe_options'] = transcribe_options
+        send_to_queue(TRANSCRIBE_QUEUE_URL, transcribe_msg)
         queues_sent.append('transcribe')
         print(f'Sent to Transcribe queue: {workflow_id}')
 
@@ -359,6 +363,11 @@ def handler(event, context):
             ocr_options = (document.get('ocr_options') if document else None) or project_ocr.get('ocr_options') or {}
             print(f'Resolved OCR: enabled={use_ocr}, model={ocr_model}, options={ocr_options}')
 
+            # Resolve transcribe options from document
+            transcribe_options = (document.get('transcribe_options') if document else None) or None
+            if transcribe_options:
+                print(f'Transcribe options: {transcribe_options}')
+
             # Resolve document prompt: document override > project default
             doc_prompt = (document.get('document_prompt') if document else None)
             document_prompt = doc_prompt if doc_prompt is not None else get_project_document_prompt(project_id)
@@ -412,6 +421,7 @@ def handler(event, context):
                 ocr_model=ocr_model,
                 ocr_options=ocr_options,
                 document_prompt=document_prompt,
+                transcribe_options=transcribe_options,
             )
 
             results.append({

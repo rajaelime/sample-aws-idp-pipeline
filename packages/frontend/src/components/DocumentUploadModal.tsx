@@ -21,6 +21,9 @@ import OcrSettingsForm, {
   type OcrSettings,
   OCR_MODELS,
 } from './OcrSettingsForm';
+import TranscribeSettingsForm, {
+  type TranscribeSettings,
+} from './TranscribeSettingsForm';
 import { LANGUAGES } from './ProjectSettingsModal';
 import { useModal } from '../hooks/useModal';
 
@@ -62,6 +65,11 @@ export interface DocumentProcessingOptions {
   use_transcribe?: boolean;
   ocr_model?: string;
   ocr_options?: Record<string, unknown>;
+  transcribe_options?: {
+    language_mode: 'auto' | 'direct' | 'multi';
+    language_code?: string;
+    language_options?: string[];
+  };
   document_prompt?: string;
   language?: string;
 }
@@ -95,6 +103,7 @@ export default function DocumentUploadModal({
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showOcr, setShowOcr] = useState(false);
+  const [showTranscribe, setShowTranscribe] = useState(false);
   const [language, setLanguage] = useState(projectLanguage || 'en');
 
   const [pdfPageCounts, setPdfPageCounts] = useState<Map<string, number>>(
@@ -177,6 +186,14 @@ export default function DocumentUploadModal({
     use_doc_unwarping: false,
     use_textline_orientation: false,
   }));
+
+  // Transcribe settings
+  const [transcribeSettings, setTranscribeSettings] =
+    useState<TranscribeSettings>(() => ({
+      transcribe_language_mode: 'auto',
+      transcribe_language_code: 'ko-KR',
+      transcribe_language_options: [],
+    }));
 
   const showVlWarning =
     ocrSettings.ocr_model === 'paddleocr-vl' && useOcr && maxPdfPages >= 20;
@@ -299,11 +316,37 @@ export default function DocumentUploadModal({
       if (Object.keys(ocrOpts).length > 0) opts.ocr_options = ocrOpts;
     }
 
+    if (
+      useTranscribe &&
+      transcribeSettings.transcribe_language_mode !== 'auto'
+    ) {
+      const tOpts: DocumentProcessingOptions['transcribe_options'] = {
+        language_mode: transcribeSettings.transcribe_language_mode,
+      };
+      if (transcribeSettings.transcribe_language_mode === 'direct') {
+        tOpts.language_code = transcribeSettings.transcribe_language_code;
+      } else if (transcribeSettings.transcribe_language_mode === 'multi') {
+        if (transcribeSettings.transcribe_language_options.length > 0) {
+          tOpts.language_options =
+            transcribeSettings.transcribe_language_options;
+        }
+      }
+      opts.transcribe_options = tOpts;
+    }
+
     if (documentPrompt.trim()) opts.document_prompt = documentPrompt.trim();
     opts.language = language;
 
     return opts;
-  }, [useBda, useOcr, useTranscribe, ocrSettings, documentPrompt, language]);
+  }, [
+    useBda,
+    useOcr,
+    useTranscribe,
+    ocrSettings,
+    transcribeSettings,
+    documentPrompt,
+    language,
+  ]);
 
   const handleUpload = useCallback(async () => {
     if (activeTab === 'file') {
@@ -315,6 +358,12 @@ export default function DocumentUploadModal({
       setUseOcr(true);
       setUseTranscribe(true);
       setShowOcr(false);
+      setShowTranscribe(false);
+      setTranscribeSettings({
+        transcribe_language_mode: 'auto',
+        transcribe_language_code: 'ko-KR',
+        transcribe_language_options: [],
+      });
     } else {
       if (!webUrl) return;
       const webreqFile = createWebreqFile();
@@ -340,6 +389,12 @@ export default function DocumentUploadModal({
       setUseOcr(true);
       setUseTranscribe(true);
       setShowOcr(false);
+      setShowTranscribe(false);
+      setTranscribeSettings({
+        transcribe_language_mode: 'auto',
+        transcribe_language_code: 'ko-KR',
+        transcribe_language_options: [],
+      });
       setWebUrl('');
       setWebInstruction('');
       setActiveTab('file');
@@ -632,21 +687,37 @@ export default function DocumentUploadModal({
                   </div>
 
                   {/* Transcribe */}
-                  <label
-                    className={`relative flex flex-col items-center gap-0.5 px-2 py-2 border rounded-lg cursor-pointer transition-colors ${
+                  <div
+                    className={`relative flex flex-col items-center gap-0.5 px-2 py-2 border rounded-lg transition-colors ${
                       useTranscribe
                         ? 'border-blue-400 bg-blue-50 dark:bg-blue-500/10'
                         : 'border-black/[0.06] dark:border-[#3b4264] hover:border-black/10 dark:hover:border-[#2a2f45] bg-transparent dark:bg-[#0d1117]'
-                    } ${uploading || !hasTranscribeEligibleFiles ? 'opacity-50 pointer-events-none' : ''}`}
+                    } ${uploading || !hasTranscribeEligibleFiles ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
+                    onClick={() => {
+                      if (!uploading && hasTranscribeEligibleFiles)
+                        setUseTranscribe(!useTranscribe);
+                    }}
                   >
                     <input
                       type="checkbox"
                       checked={useTranscribe}
-                      onChange={(e) => setUseTranscribe(e.target.checked)}
-                      disabled={uploading || !hasTranscribeEligibleFiles}
+                      readOnly
                       className="sr-only"
                     />
-                    <span className="absolute top-1 right-1 group/stt">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowTranscribe(true);
+                      }}
+                      className="absolute top-1 left-1 p-0.5 hover:bg-blue-100 dark:hover:bg-blue-800/40 rounded transition-colors"
+                    >
+                      <Settings className="h-3 w-3 text-blue-500 dark:text-blue-400" />
+                    </button>
+                    <span
+                      className="absolute top-1 right-1 group/stt"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <Info className="h-3 w-3 text-[#94a3b8] dark:text-[#475569] cursor-help" />
                       <span className="absolute top-full right-0 mt-1 hidden group-hover/stt:block w-48 p-2 text-xs text-[#475569] dark:text-[#cbd5e1] bg-white dark:bg-[#1e2235] border border-black/10 dark:border-[#3b4264] rounded-lg shadow-lg z-10">
                         {t('documents.transcribeTooltip')}
@@ -657,10 +728,20 @@ export default function DocumentUploadModal({
                     >
                       {t('documents.transcribe', 'Transcribe')}
                     </span>
-                    <span className="text-[10px] text-[#94a3b8] dark:text-[#64748b] leading-tight text-center">
-                      {t('documents.transcribeDesc', 'Amazon Transcribe')}
+                    <span className="text-[10px] text-[#94a3b8] dark:text-[#64748b] leading-tight text-center line-clamp-2 max-w-full">
+                      {t(
+                        `transcribe.summary${transcribeSettings.transcribe_language_mode.charAt(0).toUpperCase() + transcribeSettings.transcribe_language_mode.slice(1)}`,
+                      )}
+                      {transcribeSettings.transcribe_language_mode ===
+                        'direct' &&
+                        ` · ${transcribeSettings.transcribe_language_code}`}
+                      {transcribeSettings.transcribe_language_mode ===
+                        'multi' &&
+                        transcribeSettings.transcribe_language_options.length >
+                          0 &&
+                        ` · ${transcribeSettings.transcribe_language_options.length}`}
                     </span>
-                  </label>
+                  </div>
                 </div>
               </div>
 
@@ -758,6 +839,50 @@ export default function DocumentUploadModal({
                     <div className="flex justify-end px-4 py-3 border-t border-black/[0.06] dark:border-[#2a2f45]">
                       <button
                         onClick={() => setShowOcr(false)}
+                        className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 rounded-lg transition-colors"
+                      >
+                        {t('common.apply', 'Apply')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Transcribe Settings Overlay */}
+              {showTranscribe && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center">
+                  <div
+                    className="absolute inset-0 bg-black/30"
+                    onClick={() => setShowTranscribe(false)}
+                  />
+                  <div className="upload-modal-container relative rounded-xl w-full max-w-sm mx-4 border border-white/70 dark:border-[#3b4264] shadow-xl overflow-hidden">
+                    <div
+                      className="hidden dark:block absolute inset-0 pointer-events-none rounded-xl"
+                      style={{
+                        background:
+                          'radial-gradient(ellipse 60% 50% at 80% 0%, rgba(99, 102, 241, 0.15) 0%, transparent 70%)',
+                      }}
+                    />
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-black/[0.06] dark:border-[#2a2f45]">
+                      <h3 className="text-sm font-semibold text-[#1e293b] dark:text-[#f8fafc]">
+                        {t('transcribe.title')}
+                      </h3>
+                      <button
+                        onClick={() => setShowTranscribe(false)}
+                        className="p-1 hover:bg-white/40 dark:hover:bg-[#1e2235] rounded-lg transition-colors"
+                      >
+                        <X className="h-4 w-4 text-[#64748b]" />
+                      </button>
+                    </div>
+                    <div className="p-4">
+                      <TranscribeSettingsForm
+                        settings={transcribeSettings}
+                        onChange={setTranscribeSettings}
+                      />
+                    </div>
+                    <div className="flex justify-end px-4 py-3 border-t border-black/[0.06] dark:border-[#2a2f45]">
+                      <button
+                        onClick={() => setShowTranscribe(false)}
                         className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 rounded-lg transition-colors"
                       >
                         {t('common.apply', 'Apply')}

@@ -121,7 +121,9 @@
     "analysisInstructions": "Instructions",
     "bdaTooltip": "Uses Amazon Bedrock to analyze document structure including tables, charts, and multi-column layouts.",
     "ocrTooltip": "Extracts text from images and scanned PDFs using PaddleOCR. Click the settings icon to change OCR options.",
-    "transcribeTooltip": "Converts speech in video and audio files to text using Amazon Transcribe."
+    "transcribeTooltip": "Converts speech in video and audio files to text using Amazon Transcribe. Click the settings icon to change language options.",
+    "transcribe": "Transcribe",
+    "transcribeDesc": "Amazon Transcribe"
   },
   "workflow": {
     "title": "Workflow",
@@ -284,6 +286,29 @@
       "mn": "Mongolian",
       "sw": "Swahili"
     }
+  },
+  "transcribe": {
+    "title": "Transcribe Settings",
+    "languageMode": "Language Mode",
+    "language": "Language",
+    "languages": "Languages",
+    "modes": {
+      "auto": {
+        "name": "Auto Detect",
+        "description": "Automatically identifies the spoken language from a fixed set of candidates"
+      },
+      "direct": {
+        "name": "Direct Language",
+        "description": "Specify the exact language of the audio/video content"
+      },
+      "multi": {
+        "name": "Multi-Language",
+        "description": "Detect and transcribe content with multiple spoken languages"
+      }
+    },
+    "summaryAuto": "Auto",
+    "summaryDirect": "Direct",
+    "summaryMulti": "Multi"
   },
   "analysis": {
     "title": "Document Analysis Instructions",

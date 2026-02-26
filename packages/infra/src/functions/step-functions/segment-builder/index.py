@@ -609,9 +609,11 @@ def handler(event, _context):
             else:
                 print(f'Parser: {len(parser_results)} pages')
 
-        # 5. Read transcribe results (for video/audio when transcribe enabled)
+        # 5. Read transcribe results (for video/audio when transcribe completed)
         transcribe_data = {}
-        if is_media and use_transcribe:
+        preprocess_status = event.get('preprocess_check', {}).get('status', {})
+        transcribe_completed = preprocess_status.get('transcribe', {}).get('status') == 'completed'
+        if is_media and transcribe_completed:
             print('Reading transcribe results...')
             transcribe_data = parse_transcribe_result(file_uri)
             if transcribe_data:
