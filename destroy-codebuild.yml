@@ -129,7 +129,7 @@ Resources:
                   done
                 - |
                   echo "=== Pre-cleanup: S3 Express Directory Buckets ==="
-                  BUCKET=$(aws ssm get-parameter --name /idp-v2/lancedb/express-bucket-name --query Parameter.Value --output text 2>/dev/null || echo "")
+                  BUCKET=$(aws ssm get-parameter --name /idp-v2/lancedb/express/bucket-name --query Parameter.Value --output text 2>/dev/null || echo "")
                   if [ -z "$BUCKET" ]; then
                     BUCKET=$(aws s3api list-directory-buckets --query 'Buckets[?starts_with(BucketName,`lancedb-ex`)].BucketName | [0]' --output text 2>/dev/null || echo "")
                   fi
