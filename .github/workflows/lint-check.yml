@@ -14,6 +14,9 @@ on:
       - 'eslint.config.mjs'
       - '.prettierrc'
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint Check
