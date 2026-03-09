@@ -7,6 +7,12 @@ on:
       - 'packages/**'
       - 'eslint.config.mjs'
       - '.prettierrc'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'eslint.config.mjs'
+      - '.prettierrc'
 
 jobs:
   lint:
