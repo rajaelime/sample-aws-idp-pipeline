@@ -1,7 +1,6 @@
 import { Duration, Size, Stack, StackProps } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -10,9 +9,6 @@ import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cloudwatchActions from 'aws-cdk-lib/aws-cloudwatch-actions';
-import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
-import * as events from 'aws-cdk-lib/aws-events';
-import * as eventsTargets from 'aws-cdk-lib/aws-events-targets';
 import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -72,12 +68,6 @@ export class OcrStack extends Stack {
       'BackendTable',
       backendTableName,
     );
-
-    const ocrQueueArn = ssm.StringParameter.valueForStringParameter(
-      this,
-      '/idp-v2/preprocess/ocr/queue-arn',
-    );
-    const ocrQueue = sqs.Queue.fromQueueArn(this, 'OcrQueue', ocrQueueArn);
 
     // ========================================
     // PaddleOCR Model Builder (CodeBuild + ECR)
@@ -187,10 +177,10 @@ export class OcrStack extends Stack {
         functionName: 'idp-v2-ocr-lambda-processor',
         description: 'PaddleOCR processor (CPU)',
         code: lambda.DockerImageCode.fromEcr(ocrLambdaBuilder.repository, {
-          tag: 'latest',
+          tag: ocrLambdaBuilder.imageTag,
         }),
         architecture: lambda.Architecture.X86_64,
-        memorySize: 10240,
+        memorySize: 5120,
         timeout: Duration.minutes(15),
         ephemeralStorageSize: Size.gibibytes(2),
         environment: {
@@ -203,74 +193,18 @@ export class OcrStack extends Stack {
     );
     ocrLambdaProcessor.node.addDependency(ocrLambdaBuilder.buildTrigger);
 
+    // Store OCR Lambda processor function name in SSM (for WorkflowStack)
+    new ssm.StringParameter(this, 'OcrLambdaProcessorFunctionNameParam', {
+      parameterName: SSM_KEYS.OCR_LAMBDA_PROCESSOR_FUNCTION_NAME,
+      stringValue: ocrLambdaProcessor.functionName,
+    });
+
     // Permissions: DDB read/write, S3 read/write for document + model buckets
     backendTable.grantReadWriteData(ocrLambdaProcessor);
     documentBucket.grantRead(ocrLambdaProcessor);
     documentBucket.grantPut(ocrLambdaProcessor);
     modelArtifactsBucket.grantRead(ocrLambdaProcessor);
     modelArtifactsBucket.grantPut(ocrLambdaProcessor);
-
-    // ========================================
-    // OCR Invoker Lambda (routes to Lambda or SageMaker)
-    // ========================================
-
-    const ocrInvoker = new lambda.Function(this, 'OcrInvoker', {
-      functionName: 'idp-v2-ocr-invoker',
-      runtime: lambda.Runtime.PYTHON_3_14,
-      handler: 'index.handler',
-      timeout: Duration.minutes(2),
-      memorySize: 512,
-      ephemeralStorageSize: Size.mebibytes(1024),
-      code: lambda.Code.fromAsset(
-        path.join(__dirname, '../functions/preprocessing/ocr-invoker'),
-        {
-          bundling: {
-            image: lambda.Runtime.PYTHON_3_14.bundlingImage,
-            command: [
-              'bash',
-              '-c',
-              'pip install pypdf -t /asset-output && cp -r /asset-input/* /asset-output/',
-            ],
-          },
-        },
-      ),
-      layers: [sharedLayer],
-      environment: {
-        BACKEND_TABLE_NAME: backendTableName,
-        OUTPUT_BUCKET: documentBucketName,
-        SAGEMAKER_ENDPOINT_NAME: this.endpointName,
-        OCR_LAMBDA_FUNCTION_NAME: ocrLambdaProcessor.functionName,
-      },
-    });
-
-    // Grant permissions
-    backendTable.grantReadWriteData(ocrInvoker);
-    documentBucket.grantRead(ocrInvoker);
-    documentBucket.grantPut(ocrInvoker);
-    ocrLambdaProcessor.grantInvoke(ocrInvoker);
-
-    // SageMaker permissions (for async inference and scale-out)
-    ocrInvoker.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ['sagemaker:InvokeEndpointAsync'],
-        resources: ['*'],
-      }),
-    );
-    ocrInvoker.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ['sagemaker:UpdateEndpointWeightsAndCapacities'],
-        resources: [
-          `arn:aws:sagemaker:${this.region}:${this.account}:endpoint/${this.endpointName}`,
-        ],
-      }),
-    );
-
-    // SQS Event Source
-    ocrInvoker.addEventSource(
-      new lambdaEventSources.SqsEventSource(ocrQueue, {
-        batchSize: 1,
-      }),
-    );
 
     // ========================================
     // OCR Complete Handler Lambda (SNS triggered)
@@ -305,55 +239,6 @@ export class OcrStack extends Stack {
     ocrErrorTopic.addSubscription(
       new snsSubscriptions.LambdaSubscription(ocrCompleteHandler),
     );
-
-    // ========================================
-    // OCR Chunk Merger Lambda (EventBridge triggered)
-    // ========================================
-
-    const ocrChunkMerger = new lambda.Function(this, 'OcrChunkMerger', {
-      functionName: 'idp-v2-ocr-chunk-merger',
-      runtime: lambda.Runtime.PYTHON_3_14,
-      handler: 'index.handler',
-      timeout: Duration.minutes(5),
-      memorySize: 1024,
-      code: lambda.Code.fromAsset(
-        path.join(__dirname, '../functions/preprocessing/ocr-chunk-merger'),
-      ),
-      layers: [sharedLayer],
-      environment: {
-        BACKEND_TABLE_NAME: backendTableName,
-      },
-    });
-
-    // Permissions: DDB read/write, S3 read/write/delete for document bucket
-    backendTable.grantReadWriteData(ocrChunkMerger);
-    documentBucket.grantRead(ocrChunkMerger);
-    documentBucket.grantPut(ocrChunkMerger);
-    documentBucket.grantDelete(ocrChunkMerger);
-
-    // EventBridge rule: trigger merger when chunk JSON files are created
-    new events.Rule(this, 'OcrChunkCreatedRule', {
-      ruleName: 'idp-v2-ocr-chunk-created',
-      description: 'Trigger OCR chunk merger when chunk result JSON is created',
-      eventPattern: {
-        source: ['aws.s3'],
-        detailType: ['Object Created'],
-        detail: {
-          bucket: {
-            name: [documentBucketName],
-          },
-          object: {
-            key: [
-              {
-                wildcard:
-                  'projects/*/documents/*/paddleocr/chunks/chunk_*.json',
-              },
-            ],
-          },
-        },
-      },
-      targets: [new eventsTargets.LambdaFunction(ocrChunkMerger)],
-    });
 
     // ========================================
     // Fallback Scale-In (10 min alarm)

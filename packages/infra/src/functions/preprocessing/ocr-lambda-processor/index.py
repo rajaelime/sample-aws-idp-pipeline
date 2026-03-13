@@ -323,6 +323,26 @@ def format_pp_structurev3_output(results: list[Any]) -> dict:
 # Main Processing
 # ========================================
 
+def _extract_page_range_pdf(pdf_path: str, page_start: int, page_end: int) -> str:
+    """Extract a page range from a PDF (fast page copy, no rendering)."""
+    import pypdfium2 as pdfium
+
+    src_doc = pdfium.PdfDocument(pdf_path)
+    page_end = min(page_end, len(src_doc))
+    page_count = page_end - page_start
+    out_path = f'/tmp/_ocr_chunk_{page_start}_{page_end}.pdf'
+
+    new_doc = pdfium.PdfDocument.new()
+    new_doc.import_pages(src_doc, list(range(page_start, page_end)))
+    new_doc.save(out_path)
+    new_doc.close()
+    src_doc.close()
+
+    out_size = os.path.getsize(out_path) / (1024 * 1024)
+    print(f'Extracted pages {page_start}-{page_end} ({page_count} pages): {out_size:.1f}MB')
+    return out_path
+
+
 def get_base_path_from_uri(file_uri: str) -> tuple[str, str, str]:
     """Extract bucket, key, and document base path from a file URI."""
     bucket, key = parse_s3_uri(file_uri)
@@ -344,12 +364,13 @@ def process_file(
     context: Any = None,
     chunk_index: int | None = None,
     start_page: int | None = None,
+    end_page: int | None = None,
     total_chunks: int | None = None,
-    original_file_uri: str | None = None,
 ) -> dict:
     """Download file from S3, run OCR, save result.json, update DDB.
 
     In chunk mode (chunk_index is not None):
+    - Processes only pages in [start_page, end_page) range from the original PDF
     - Saves output to chunks/chunk_NNNN.json instead of result.json
     - Applies page offset (start_page) to page indices
     - Does NOT update DDB (merger Lambda handles that)
@@ -360,10 +381,6 @@ def process_file(
     is_chunk = chunk_index is not None
     s3 = get_s3_client()
     bucket, key, base_path = get_base_path_from_uri(file_uri)
-
-    # In chunk mode, base_path comes from the original file, not the chunk file
-    if is_chunk and original_file_uri:
-        _, _, base_path = get_base_path_from_uri(original_file_uri)
 
     # Download file to /tmp
     suffix = os.path.splitext(key)[1].lower() or '.jpg'
@@ -387,16 +404,16 @@ def process_file(
 
         # Run prediction
         predict_start = time.time()
-        results = model.predict(input=tmp_path)
+        is_pdf = tmp_path.lower().endswith('.pdf')
+        chunk_pdf_path = None
 
-        # Collect results (generator) with page-level progress
-        result_list = []
-        for page_idx, res in enumerate(results):
-            result_list.append(res)
-            elapsed = time.time() - predict_start
-            if (page_idx + 1) % 50 == 0 or page_idx == 0:
-                remaining_ms = context.get_remaining_time_in_millis() if context else 0
-                print(f'[{workflow_id}]{chunk_label} Page {page_idx + 1} done ({elapsed:.1f}s elapsed, {remaining_ms/1000:.0f}s remaining)')
+        if is_pdf and is_chunk and start_page is not None and end_page is not None:
+            chunk_pdf_path = _extract_page_range_pdf(tmp_path, start_page, end_page)
+            results = model.predict(input=chunk_pdf_path)
+            result_list = list(results)
+        else:
+            results = model.predict(input=tmp_path)
+            result_list = list(results)
 
         total_predict_time = time.time() - predict_start
         print(f'[{workflow_id}]{chunk_label} Predict completed: {len(result_list)} pages in {total_predict_time:.1f}s ({total_predict_time/max(len(result_list),1):.2f}s/page)')
@@ -476,6 +493,8 @@ def process_file(
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
+        if chunk_pdf_path and os.path.exists(chunk_pdf_path):
+            os.unlink(chunk_pdf_path)
 
 
 def handler(event, context):
@@ -494,8 +513,8 @@ def handler(event, context):
     # Chunk mode parameters
     chunk_index = event.get('chunk_index')
     start_page = event.get('start_page')
+    end_page = event.get('end_page')
     total_chunks = event.get('total_chunks')
-    original_file_uri = event.get('original_file_uri')
     is_chunk = chunk_index is not None
 
     remaining_ms = context.get_remaining_time_in_millis() if context else 900000
@@ -512,8 +531,8 @@ def handler(event, context):
             context=context,
             chunk_index=chunk_index,
             start_page=start_page,
+            end_page=end_page,
             total_chunks=total_chunks,
-            original_file_uri=original_file_uri,
         )
         return {'statusCode': 200, 'body': json.dumps(result)}
 

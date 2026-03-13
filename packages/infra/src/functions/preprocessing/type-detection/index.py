@@ -1,7 +1,7 @@
 """Type Detection Lambda
 
-Detects file type from S3 upload events and distributes to appropriate SQS queues
-for parallel preprocessing.
+Detects file type from S3 upload events and sends enriched message to Workflow Queue.
+Preprocessing is orchestrated by Step Functions (not separate SQS consumers).
 """
 import json
 import os
@@ -21,12 +21,8 @@ from shared.ddb_client import (
 sqs_client = None
 autoscaling_client = None
 
-OCR_QUEUE_URL = os.environ.get('OCR_QUEUE_URL', '')
-BDA_QUEUE_URL = os.environ.get('BDA_QUEUE_URL', '')
-TRANSCRIBE_QUEUE_URL = os.environ.get('TRANSCRIBE_QUEUE_URL', '')
 WORKFLOW_QUEUE_URL = os.environ.get('WORKFLOW_QUEUE_URL', '')
 SAGEMAKER_ENDPOINT_NAME = os.environ.get('SAGEMAKER_ENDPOINT_NAME', '')
-WEBCRAWLER_QUEUE_URL = os.environ.get('WEBCRAWLER_QUEUE_URL', '')
 
 # Models that run on Lambda (CPU-only) instead of SageMaker (GPU)
 LAMBDA_OCR_MODELS = {'pp-ocrv5', 'pp-structurev3'}
@@ -203,7 +199,7 @@ def send_to_queue(queue_url: str, message: dict) -> None:
     )
 
 
-def distribute_to_queues(
+def send_to_workflow_queue(
     workflow_id: str,
     document_id: str,
     project_id: str,
@@ -218,33 +214,29 @@ def distribute_to_queues(
     ocr_options: dict | None = None,
     document_prompt: str = '',
     transcribe_options: dict | None = None,
-) -> dict:
-    """Distribute preprocessing tasks to appropriate queues based on file type."""
-    is_pdf = file_type == 'application/pdf'
-    is_image = file_type.startswith('image/')
-    is_video = file_type.startswith('video/')
-    is_audio = file_type.startswith('audio/')
+    source_url: str = '',
+    crawl_instruction: str = '',
+) -> None:
+    """Send enriched message to Workflow Queue. Step Functions handles all preprocessing."""
     is_webreq = file_type == 'application/x-webreq'
-    is_text = file_type in (
-        'text/plain',
-        'text/markdown',
-    )
+    is_text = file_type in ('text/plain', 'text/markdown')
     is_spreadsheet = file_type in (
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'application/vnd.ms-excel',
         'text/csv',
     )
-    is_office_document = file_type in (
-        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        'application/vnd.ms-powerpoint',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/msword',
-    )
-    is_dxf = file_type in (
-        'application/dxf', 'image/vnd.dxf',
-    )
+    is_dxf = file_type in ('application/dxf', 'image/vnd.dxf')
 
-    base_message = {
+    processing_type = 'web' if is_webreq else ('text' if (is_text or is_spreadsheet or is_dxf) else get_processing_type(file_type))
+
+    # Resolve OCR language option
+    resolved_ocr_options = dict(ocr_options or {})
+    if not resolved_ocr_options.get('lang') and language:
+        ocr_lang = PROJECT_LANG_TO_OCR_LANG.get(language)
+        if ocr_lang:
+            resolved_ocr_options['lang'] = ocr_lang
+
+    message = {
         'workflow_id': workflow_id,
         'document_id': document_id,
         'project_id': project_id,
@@ -252,72 +244,28 @@ def distribute_to_queues(
         'file_name': file_name,
         'file_type': file_type,
         'language': language,
-    }
-
-    queues_sent = []
-
-    # WebCrawler Queue (for .webreq files)
-    if is_webreq:
-        send_to_queue(WEBCRAWLER_QUEUE_URL, {
-            **base_message,
-            'processor': PreprocessType.WEBCRAWLER,
-        })
-        queues_sent.append('webcrawler')
-        print(f'Sent to WebCrawler queue: {workflow_id}')
-
-    # OCR Queue (PDF or Image, but not .webreq or DWG, and OCR enabled)
-    if (is_pdf or (is_image and not is_dxf)) and not is_webreq and use_ocr:
-        resolved_ocr_options = dict(ocr_options or {})
-        if not resolved_ocr_options.get('lang') and language:
-            ocr_lang = PROJECT_LANG_TO_OCR_LANG.get(language)
-            if ocr_lang:
-                resolved_ocr_options['lang'] = ocr_lang
-        send_to_queue(OCR_QUEUE_URL, {
-            **base_message,
-            'processor': PreprocessType.OCR,
-            'ocr_model': ocr_model,
-            'ocr_options': resolved_ocr_options,
-        })
-        queues_sent.append('ocr')
-        print(f'Sent to OCR queue: {workflow_id} (model={ocr_model})')
-
-        # Only trigger SageMaker scale-out for models that use SageMaker (GPU)
-        if ocr_model not in LAMBDA_OCR_MODELS:
-            trigger_sagemaker_scale_out()
-
-    # BDA Queue (if use_bda is enabled, but not .webreq, office documents, spreadsheets, or DWG)
-    if use_bda and not is_webreq and not is_office_document and not is_spreadsheet and not is_dxf:
-        send_to_queue(BDA_QUEUE_URL, {
-            **base_message,
-            'processor': PreprocessType.BDA,
-        })
-        queues_sent.append('bda')
-        print(f'Sent to BDA queue: {workflow_id}')
-
-    # Transcribe Queue (Video or Audio, but not .webreq, and transcribe enabled)
-    if (is_video or is_audio) and not is_webreq and use_transcribe:
-        transcribe_msg = {
-            **base_message,
-            'processor': PreprocessType.TRANSCRIBE,
-        }
-        if transcribe_options:
-            transcribe_msg['transcribe_options'] = transcribe_options
-        send_to_queue(TRANSCRIBE_QUEUE_URL, transcribe_msg)
-        queues_sent.append('transcribe')
-        print(f'Sent to Transcribe queue: {workflow_id}')
-
-    # Always send to Workflow Queue (Step Functions will poll for completion)
-    processing_type = 'web' if is_webreq else ('text' if (is_text or is_spreadsheet or is_dxf) else get_processing_type(file_type))
-    send_to_queue(WORKFLOW_QUEUE_URL, {
-        **base_message,
         'processing_type': processing_type,
         'use_bda': use_bda,
+        'use_ocr': use_ocr,
+        'use_transcribe': use_transcribe,
+        'ocr_model': ocr_model,
+        'ocr_options': resolved_ocr_options,
         'document_prompt': document_prompt,
-    })
-    queues_sent.append('workflow')
+    }
+
+    if transcribe_options:
+        message['transcribe_options'] = transcribe_options
+    if source_url:
+        message['source_url'] = source_url
+    if crawl_instruction:
+        message['crawl_instruction'] = crawl_instruction
+
+    send_to_queue(WORKFLOW_QUEUE_URL, message)
     print(f'Sent to Workflow queue: {workflow_id}')
 
-    return {'queues_sent': queues_sent}
+    # Trigger SageMaker scale-out early for GPU OCR models
+    if use_ocr and ocr_model not in LAMBDA_OCR_MODELS:
+        trigger_sagemaker_scale_out()
 
 
 def handler(event, context):
@@ -406,8 +354,8 @@ def handler(event, context):
             )
             print(f'Created workflow record: {workflow_id}')
 
-            # Distribute to preprocessing queues
-            distribution = distribute_to_queues(
+            # Send enriched message to Workflow Queue
+            send_to_workflow_queue(
                 workflow_id=workflow_id,
                 document_id=document_id,
                 project_id=project_id,
@@ -422,6 +370,8 @@ def handler(event, context):
                 ocr_options=ocr_options,
                 document_prompt=document_prompt,
                 transcribe_options=transcribe_options,
+                source_url=source_url,
+                crawl_instruction=crawl_instruction,
             )
 
             results.append({
@@ -429,7 +379,6 @@ def handler(event, context):
                 'document_id': document_id,
                 'project_id': project_id,
                 'file_type': file_type,
-                'queues_sent': distribution['queues_sent'],
                 'status': 'distributed'
             })
 

@@ -45,6 +45,7 @@ export interface OcrLambdaBuilderProps {
 export class OcrLambdaBuilder extends Construct {
   public readonly repository: Repository;
   public readonly imageUri: string;
+  public readonly imageTag: string;
   public readonly buildTrigger: CustomResource;
 
   constructor(scope: Construct, id: string, props: OcrLambdaBuilderProps) {
@@ -64,12 +65,14 @@ export class OcrLambdaBuilder extends Construct {
       imageScanOnPush: true,
     });
 
-    this.imageUri = `${this.repository.repositoryUri}:latest`;
-
     // S3 Asset for build context (functions/ directory)
     const buildContextAsset = new Asset(this, 'BuildContextAsset', {
       path: props.buildContextPath,
     });
+
+    // Use asset hash as image tag so Lambda detects changes on deploy
+    this.imageTag = buildContextAsset.assetHash.substring(0, 16);
+    this.imageUri = `${this.repository.repositoryUri}:${this.imageTag}`;
 
     // CodeBuild Project (x86, for PaddlePaddle compatibility)
     const codeBuildProject = new Project(this, 'CodeBuildProject', {
@@ -102,7 +105,9 @@ export class OcrLambdaBuilder extends Construct {
           post_build: {
             commands: [
               `docker tag ${repositoryName}:latest ${this.repository.repositoryUri}:latest`,
+              `docker tag ${repositoryName}:latest ${this.repository.repositoryUri}:${this.imageTag}`,
               `docker push ${this.repository.repositoryUri}:latest`,
+              `docker push ${this.repository.repositoryUri}:${this.imageTag}`,
             ],
           },
         },

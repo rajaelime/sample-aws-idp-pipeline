@@ -1,85 +1,72 @@
 Analyze video segment (chapter {segment_index}).
 
-<context_from_previous_processing>
-The following information has been extracted by upstream processors. Use this as reference but verify against the video - the video is the authoritative source.
+<upstream_processor_results>
+The following was extracted by automated processors. Use as reference but verify against the video. The video is the authoritative source. Processors frequently miss content, garble text, and produce incomplete transcripts.
 
 {context}
-</context_from_previous_processing>
+</upstream_processor_results>
 
-<analysis_workflow>
-Execute this workflow systematically:
+<instructions>
+**Step 1: ASSESS**
+Determine if this segment has substantive content to extract.
+- If no meaningful content (black screen, dead air, empty bumper): describe briefly and stop.
+- If content exists: proceed to Step 2.
 
-**Step 1: Speech Transcript Extraction (CRITICAL - DO THIS FIRST)**
-- Call the `extract_video_script` tool to extract and verify the speech transcript
-- This tool analyzes the video audio against upstream STT results and produces a corrected, complete transcript
-- Wait for the result before proceeding to the next step
+**Step 2: EXTRACT**
+1. Call `extract_video_script` to get the corrected speech transcript. Wait for the result.
+2. Use `analyze_video` with targeted queries to extract visual content systematically.
+3. Check the upstream processor results for the same content areas.
+4. If the processors got it right, use the content.
+5. If the processors got it wrong or missed something, correct it using what the tools report.
 
-**Step 2: Content Overview**
-- Identify the type of content in this chapter
-- Note the setting, participants, and main focus
+Cover ALL content in the segment - visual scenes, speech, text overlays, actions, and events.
 
-**Step 3: Systematic Extraction**
-Use analyze_video tool with targeted queries to extract:
-- Visual content and actions
-- Text overlays and graphics
-- Key events and transitions
+**Step 3: ANALYZE (if needed)**
+After extraction is complete, add analysis only if it provides value beyond the raw extraction:
+- Interpretation of content, demonstrations, or discussions
+- Relationships between visual and audio elements
+- Domain-specific significance
+- Notable patterns or events
+</instructions>
 
-**Step 4: Synthesis and Verification**
-- Compile all extracted information
-- Verify against context from previous processing
-- Note any discrepancies between transcription and actual audio
-- Flag items requiring attention
-</analysis_workflow>
-
-<required_output_structure>
-Provide your analysis in this format:
+<output_format>
+Provide your output in this structure:
 
 ## Video Overview
-- **Type**: [Content classification - tutorial, presentation, documentary, etc.]
+- **Type**: [Content classification - tutorial, presentation, documentary, interview, etc.]
 - **Setting**: [Location/environment description]
 - **Participants**: [People/subjects visible]
 
-## Primary Content
-
-### Visual Description
-[Describe key scenes, actions, and visual elements in chronological order]
-
-### Audio/Speech Content
-[Full STT transcript from context, with only obvious errors corrected]
-- Include the complete transcript as-is from the upstream STT results
-- Only fix clearly misheard words verified against the video
+## Speech Content
+[Full corrected transcript from extract_video_script]
+- Preserve the complete transcript exactly as corrected
 - Mark inaudible sections as [inaudible]
-- Do NOT summarize - this must be the full original transcript
+- Do NOT summarize - this must be the full transcript
 
-### Text and Graphics
-[List any text overlays, titles, graphics, or visual data]
+## Visual Content
+[Describe key scenes, actions, and visual elements in chronological order]
+- Scene descriptions and transitions
+- Actions and activities
+- Text overlays, titles, and graphics
+- Objects, products, and equipment shown
 
-## Key Events
-[Bullet list of significant events or actions with approximate timing within the segment]
-
-## Key Information Extract
-[Most important searchable facts and findings]
-- Focus on searchable, referenceable data points
-- Include specific names, terms, products mentioned
-
-## Entities and References
-- **People**: [Names and roles if identifiable]
-- **Organizations**: [Companies, brands mentioned]
-- **Products/Items**: [Specific products or objects featured]
-- **Topics**: [Main subjects discussed or demonstrated]
+## Key Information
+[Bullet list of the most important searchable data points]
+- Every name, date, product, organization mentioned
+- Key terms, topics, and concepts discussed
+- Specific facts and figures presented
+- Focus on facts that users would search for
 
 ## Analysis Notes
-- **STT Corrections**: [Errors found and corrected from the transcription results]
-- **Speech Added**: [Speech that was missing from the transcription results]
+[Include only if applicable]
 - **Uncertainties**: [Areas where observation confidence is low]
 - **Inaudible/Unclear**: [Parts that could not be understood]
-- **Discrepancies**: [Differences from previous processor output]
-- **Quality Issues**: [Any audio/visual quality problems]
-</required_output_structure>
+
+Do NOT report STT corrections, transcription fixes, or what you corrected from the upstream processor results. Just output the correct content silently.
+</output_format>
 
 <language_requirement>
-Provide ALL output in {language}.
-- Use appropriate terminology for the video's domain
-- Maintain original language for proper nouns and quoted speech
-- Ensure clarity and precision in the target language
+Provide ALL section headers, descriptions, and analysis notes in {language}.
+Preserve original speech content exactly as spoken - do not translate quoted speech.
+Use appropriate terminology for the video's domain.
 </language_requirement>

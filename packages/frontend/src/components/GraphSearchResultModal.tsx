@@ -25,8 +25,8 @@ function toGraphData(result: GraphSearchResult): GraphData {
   for (const entity of result.entities) {
     nodes.push({
       id: `entity-${entity.name}`,
-      label: entity.name,
-      type: 'entity',
+      name: entity.name,
+      label: 'entity',
       properties: { entity_type: entity.type },
     });
   }
@@ -40,8 +40,8 @@ function toGraphData(result: GraphSearchResult): GraphData {
     // Analysis node
     nodes.push({
       id: `qa-${qaId}`,
-      label: `QA ${qaIdx}`,
-      type: 'analysis',
+      name: `QA ${qaIdx}`,
+      label: 'analysis',
       properties: { segment_index: source.segment_index, qa_index: qaIdx },
     });
 
@@ -58,8 +58,8 @@ function toGraphData(result: GraphSearchResult): GraphData {
       segKeys.add(segKey);
       nodes.push({
         id: `seg-${segKey}`,
-        label: `Page ${source.segment_index + 1}`,
-        type: 'segment',
+        name: `Page ${source.segment_index + 1}`,
+        label: 'segment',
         properties: {
           segment_index: source.segment_index,
           document_id: source.document_id,
@@ -79,8 +79,8 @@ function toGraphData(result: GraphSearchResult): GraphData {
       docIds.add(source.document_id);
       nodes.push({
         id: `doc-${source.document_id}`,
-        label: 'Document',
-        type: 'document',
+        name: 'Document',
+        label: 'document',
         properties: {},
       });
     }

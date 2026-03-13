@@ -35,7 +35,7 @@ def handler(event, context):
         try:
             body = json.loads(record.get('body', '{}'))
 
-            # Message from type-detection via Workflow Queue
+            # Message from type-detection via Workflow Queue (enriched with all preprocessing fields)
             workflow_id = body.get('workflow_id')
             document_id = body.get('document_id')
             project_id = body.get('project_id')
@@ -44,9 +44,15 @@ def handler(event, context):
             file_type = body.get('file_type')
             language = body.get('language', 'en')
             use_bda = body.get('use_bda', False)
+            use_ocr = body.get('use_ocr', True)
             use_transcribe = body.get('use_transcribe', False)
             processing_type = body.get('processing_type', 'document')
             document_prompt = body.get('document_prompt', '')
+            ocr_model = body.get('ocr_model', 'pp-ocrv5')
+            ocr_options = body.get('ocr_options', {})
+            transcribe_options = body.get('transcribe_options')
+            source_url = body.get('source_url', '')
+            crawl_instruction = body.get('crawl_instruction', '')
 
             if not workflow_id or not document_id:
                 print(f'Skipping: missing workflow_id or document_id')
@@ -64,7 +70,7 @@ def handler(event, context):
             client = get_sfn_client()
             execution_name = f'{workflow_id[:16]}-{datetime.utcnow().strftime("%Y%m%d%H%M%S")}'
 
-            # Input for Step Functions
+            # Input for Step Functions (includes all preprocessing fields)
             sfn_input = {
                 'workflow_id': workflow_id,
                 'document_id': document_id,
@@ -75,11 +81,18 @@ def handler(event, context):
                 'processing_type': processing_type,
                 'language': language,
                 'use_bda': use_bda,
+                'use_ocr': use_ocr,
                 'use_transcribe': use_transcribe,
+                'ocr_model': ocr_model,
+                'ocr_options': ocr_options,
                 'document_prompt': document_prompt,
+                'source_url': source_url,
+                'crawl_instruction': crawl_instruction,
                 'is_reanalysis': False,
                 'triggered_at': datetime.utcnow().isoformat()
             }
+            if transcribe_options:
+                sfn_input['transcribe_options'] = transcribe_options
 
             response = client.start_execution(
                 stateMachineArn=STEP_FUNCTION_ARN,

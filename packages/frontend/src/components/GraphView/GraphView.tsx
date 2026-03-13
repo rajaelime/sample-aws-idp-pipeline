@@ -34,9 +34,9 @@ interface GraphViewProps {
 function collectEntityTypes(data: GraphData): string[] {
   const types = new Set<string>();
   for (const node of data.nodes) {
-    if (node.type === 'entity') {
+    if (node.label === 'entity') {
       types.add((node.properties?.entity_type as string) ?? 'CONCEPT');
-    } else if (node.type === 'cluster') {
+    } else if (node.label === 'cluster') {
       types.add((node.properties?.entity_type as string) ?? 'CONCEPT');
     }
   }
@@ -94,7 +94,7 @@ export default function GraphView({
     );
   }
 
-  const hasClusters = data.nodes.some((n) => n.type === 'cluster');
+  const hasClusters = data.nodes.some((n) => n.label === 'cluster');
 
   const ForceGraphView =
     viewMode === '3d' ? ForceGraphView3D : ForceGraphView2D;

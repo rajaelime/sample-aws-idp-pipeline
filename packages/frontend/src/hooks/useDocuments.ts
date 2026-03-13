@@ -349,6 +349,35 @@ export function useDocuments({
           setTimeout(() => {
             fetchProgressRef.current();
           }, 2000);
+        } else if (data.status === 'reanalyzing') {
+          // Reanalysis: document already exists, just update progress map
+          setWorkflowProgressMap((prev) => ({
+            ...prev,
+            [data.documentId]: {
+              workflowId: data.workflowId,
+              documentId: data.documentId,
+              fileName: prev[data.documentId]?.fileName || '',
+              status: 'reanalyzing',
+              currentStep: t('workflow.reanalyzing', 'Re-analyzing...'),
+              stepMessage: '',
+              segmentProgress: null,
+              error: null,
+              steps: prev[data.documentId]?.steps || {},
+            },
+          }));
+
+          // Update document status locally without API call
+          setDocuments((prev) =>
+            prev.map((d) =>
+              d.document_id === data.documentId
+                ? { ...d, status: 'reanalyzing' }
+                : d,
+            ),
+          );
+
+          setTimeout(() => {
+            fetchProgressRef.current();
+          }, 2000);
         } else if (data.status === 'completed' || data.status === 'failed') {
           setWorkflowProgressMap((prev) => {
             if (!prev[data.documentId]) return prev;
@@ -363,10 +392,9 @@ export function useDocuments({
 
           setTimeout(() => {
             loadDocuments();
+            loadWorkflows();
           }, 1500);
         }
-
-        loadWorkflows();
       }
     },
     [projectId, loadDocuments, loadWorkflows, debouncedLoadDocuments, t],
@@ -668,7 +696,7 @@ export function useDocuments({
   );
 
   const handleReanalyze = useCallback(
-    async (userInstructions: string) => {
+    async (userInstructions: string, language?: string) => {
       if (!selectedWorkflow) return;
 
       setReanalyzing(true);
@@ -682,12 +710,40 @@ export function useDocuments({
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_instructions: userInstructions }),
+            body: JSON.stringify({
+              user_instructions: userInstructions,
+              language: language || 'en',
+            }),
           },
         );
         showToast('success', t('workflow.reanalyzeStarted'));
+
+        // Add to progress map so SidePanel shows reanalysis progress
+        setWorkflowProgressMap((prev) => ({
+          ...prev,
+          [selectedWorkflow.document_id]: {
+            workflowId: selectedWorkflow.workflow_id,
+            documentId: selectedWorkflow.document_id,
+            fileName: selectedWorkflow.file_name || '',
+            status: 'reanalyzing',
+            currentStep: t('workflow.reanalyzing', 'Re-analyzing...'),
+            stepMessage: '',
+            segmentProgress: null,
+            error: null,
+            steps: {},
+          },
+        }));
+
+        // Update document status locally
+        setDocuments((prev) =>
+          prev.map((d) =>
+            d.document_id === selectedWorkflow.document_id
+              ? { ...d, status: 'reanalyzing' }
+              : d,
+          ),
+        );
+
         setSelectedWorkflow(null);
-        loadWorkflows();
       } catch (error) {
         console.error('Failed to start re-analysis:', error);
         showToast('error', t('workflow.reanalyzeFailed'));
@@ -695,7 +751,7 @@ export function useDocuments({
         setReanalyzing(false);
       }
     },
-    [fetchApi, selectedWorkflow, showToast, t, loadWorkflows],
+    [fetchApi, selectedWorkflow, showToast, t],
   );
 
   const handleRegenerateQa = useCallback(

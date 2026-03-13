@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from app.config import get_config
 from app.ddb import get_document_item
+from app.ddb.documents import update_document_status
 from app.ddb.workflows import get_workflow_item, query_workflows, update_workflow_status
 from app.markdown import transform_markdown_images
 from app.s3 import generate_presigned_url, get_s3_client, get_segment_key_by_index, list_segment_keys, parse_s3_uri
@@ -256,6 +257,7 @@ def get_segment(document_id: str, workflow_id: str, segment_index: int) -> Segme
 
 class ReanalysisRequest(BaseModel):
     user_instructions: str = ""
+    language: str = "en"
 
 
 class ReanalysisResponse(BaseModel):
@@ -296,6 +298,8 @@ def reanalyze_workflow(document_id: str, workflow_id: str, request: ReanalysisRe
         "file_type": wf.data.file_type,
         "is_reanalysis": True,
         "user_instructions": request.user_instructions,
+        "language": request.language,
+        "document_prompt": "",
         "triggered_at": datetime.utcnow().isoformat(),
     }
 
@@ -312,8 +316,9 @@ def reanalyze_workflow(document_id: str, workflow_id: str, request: ReanalysisRe
 
         execution_arn = response["executionArn"]
 
-        # Update workflow status
+        # Update workflow and document status
         update_workflow_status(document_id, workflow_id, "reanalyzing", execution_arn)
+        update_document_status(wf.data.project_id, document_id, "reanalyzing")
 
         return ReanalysisResponse(
             workflow_id=workflow_id,

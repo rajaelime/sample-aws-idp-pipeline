@@ -94,6 +94,7 @@
     "supportedFormats": "문서(PDF, DOC, PPT, TXT), 이미지(PNG, JPG, GIF, TIFF), 동영상(MP4, MOV, AVI), 오디오(MP3, WAV, FLAC) 최대 500MB 지원",
     "processing": "처리 중",
     "in_progress": "분석 중",
+    "reanalyzing": "재분석 중",
     "completed": "완료",
     "failed": "실패",
     "pending": "대기 중",

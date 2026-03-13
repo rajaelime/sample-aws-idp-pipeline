@@ -41,8 +41,8 @@ def invoke_graph_service(action: str, params: dict) -> dict:
 
 class GraphNode(BaseModel):
     id: str
+    name: str
     label: str
-    type: str
     properties: dict
 
 
@@ -208,8 +208,8 @@ def get_entity_detail(
     neighbors = [
         GraphNode(
             id=n.get("id", ""),
-            label=n.get("props", {}).get("name", n.get("id", "")),
-            type=(n.get("labels", ["unknown"])[0] if n.get("labels") else "unknown").lower(),
+            name=n.get("props", {}).get("name", n.get("id", "")),
+            label=(n.get("labels", ["unknown"])[0] if n.get("labels") else "unknown").lower(),
             properties=n.get("props", {}),
         )
         for n in traverse_result.get("nodes", [])

@@ -883,7 +883,7 @@ export default function ChatInputBox({
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*,.pdf,.csv,.doc,.docx,.xls,.xlsx,.html,.txt,.md"
+        accept="image/*,.pdf,.doc,.docx,.html,.txt,.md"
         onChange={handleFileSelect}
         className="hidden"
       />

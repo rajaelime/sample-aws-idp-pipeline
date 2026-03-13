@@ -168,7 +168,7 @@ export interface WorkflowProgress {
   workflowId: string;
   documentId: string;
   fileName: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  status: 'pending' | 'in_progress' | 'reanalyzing' | 'completed' | 'failed';
   currentStep: string;
   stepMessage: string;
   segmentProgress: { completed: number; total: number } | null;

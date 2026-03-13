@@ -6,6 +6,7 @@ import { Bucket } from 'aws-cdk-lib/aws-s3';
 import { Queue } from 'aws-cdk-lib/aws-sqs';
 import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -133,7 +134,7 @@ export class AgentStack extends Stack {
       });
     }
 
-    // Initialize analysis prompts in S3 on first deployment
+    // Upload analysis prompts to S3 (updates on content change)
     const analysisPromptFiles = [
       'system_prompt',
       'user_query',
@@ -143,6 +144,7 @@ export class AgentStack extends Stack {
       'video_analysis_prompt',
       'text_system_prompt',
       'text_user_query',
+      'script_extractor_prompt',
     ];
 
     for (const promptFile of analysisPromptFiles) {
@@ -151,25 +153,33 @@ export class AgentStack extends Stack {
         `src/prompts/analysis/${promptFile}.txt`,
       );
       const promptContent = fs.readFileSync(promptPath, 'utf-8');
+      const contentHash = crypto
+        .createHash('md5')
+        .update(promptContent)
+        .digest('hex')
+        .slice(0, 8);
       const resourceId = `InitAnalysis${promptFile
         .split('_')
         .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
         .join('')}`;
 
-      new cr.AwsCustomResource(this, resourceId, {
-        onCreate: {
-          service: 'S3',
-          action: 'putObject',
-          parameters: {
-            Bucket: agentStorageBucketName,
-            Key: `__prompts/analysis/${promptFile}.txt`,
-            Body: promptContent,
-            ContentType: 'text/plain',
-          },
-          physicalResourceId: cr.PhysicalResourceId.of(
-            `analysis-${promptFile}-init`,
-          ),
+      const s3PutParams = {
+        service: 'S3',
+        action: 'putObject',
+        parameters: {
+          Bucket: agentStorageBucketName,
+          Key: `__prompts/analysis/${promptFile}.txt`,
+          Body: promptContent,
+          ContentType: 'text/plain',
         },
+        physicalResourceId: cr.PhysicalResourceId.of(
+          `analysis-${promptFile}-${contentHash}`,
+        ),
+      };
+
+      new cr.AwsCustomResource(this, resourceId, {
+        onCreate: s3PutParams,
+        onUpdate: s3PutParams,
         policy: cr.AwsCustomResourcePolicy.fromStatements([
           new iam.PolicyStatement({
             actions: ['s3:PutObject'],

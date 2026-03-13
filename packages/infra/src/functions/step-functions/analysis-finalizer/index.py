@@ -204,17 +204,6 @@ def handler(event, _context):
     if isinstance(segment_index, dict):
         segment_index = segment_index.get('segment_index', 0)
 
-    # For re-analysis, delete all existing QA records for this segment
-    if is_reanalysis:
-        print(f'Re-analysis mode: deleting existing records for segment {segment_index}')
-        delete_result = invoke_lancedb('delete_record', {
-            'project_id': project_id,
-            'workflow_id': workflow_id,
-            'segment_index': segment_index,
-            'qa_index': None
-        })
-        print(f'Delete result: {delete_result}')
-
     # Get segment data from S3
     segment_data = get_segment_analysis(file_uri, segment_index)
 
