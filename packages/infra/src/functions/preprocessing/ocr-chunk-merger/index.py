@@ -43,12 +43,6 @@ def extract_base_path(chunk_key: str) -> str:
     return match.group(1)
 
 
-def read_manifest(s3, bucket: str, base_path: str) -> dict:
-    """Read manifest.json from S3."""
-    manifest_key = f'{base_path}/paddleocr/manifest.json'
-    response = s3.get_object(Bucket=bucket, Key=manifest_key)
-    return json.loads(response['Body'].read().decode('utf-8'))
-
 
 def list_chunk_files(s3, bucket: str, base_path: str) -> tuple[list[str], list[str]]:
     """List completed chunk JSON files and failed marker files.
@@ -132,36 +126,40 @@ def cleanup_chunks(s3, bucket: str, base_path: str) -> None:
     print(f'Cleaned up {len(keys_to_delete)} chunk files')
 
 
+def get_base_path_from_file_uri(file_uri: str) -> tuple[str, str]:
+    """Extract bucket and base path from file_uri."""
+    # s3://bucket/projects/proj_X/documents/doc_X/file.pdf
+    parts = file_uri.replace('s3://', '').split('/', 1)
+    bucket = parts[0]
+    key = parts[1] if len(parts) > 1 else ''
+    key_parts = key.split('/')
+    if 'documents' in key_parts:
+        doc_idx = key_parts.index('documents')
+        base_path = '/'.join(key_parts[:doc_idx + 2])
+    else:
+        base_path = '/'.join(key_parts[:-1])
+    return bucket, base_path
+
+
 def handler(event, _context):
-    """Handle S3 EventBridge notification for chunk completion."""
+    """Handle chunk merge after Step Functions Map completion."""
     print(f'Event: {json.dumps(event)}')
 
-    detail = event.get('detail', {})
-    bucket = detail.get('bucket', {}).get('name')
-    chunk_key = detail.get('object', {}).get('key')
+    workflow_id = event.get('workflow_id')
+    document_id = event.get('document_id')
+    file_uri = event.get('file_uri')
 
-    if not bucket or not chunk_key:
-        print('Missing bucket or key in event')
-        return {'status': 'skipped', 'reason': 'missing_event_fields'}
+    if not workflow_id or not file_uri:
+        print('Missing workflow_id or file_uri')
+        return {**event, 'merge_status': 'skipped', 'reason': 'missing_fields'}
 
-    try:
-        base_path = extract_base_path(chunk_key)
-    except ValueError as e:
-        print(f'Invalid chunk key: {e}')
-        return {'status': 'skipped', 'reason': 'invalid_key'}
-
+    bucket, base_path = get_base_path_from_file_uri(file_uri)
     s3 = get_s3_client()
 
-    # Read manifest to know expected chunk count
-    try:
-        manifest = read_manifest(s3, bucket, base_path)
-    except Exception as e:
-        print(f'Failed to read manifest: {e}')
-        return {'status': 'error', 'reason': f'manifest_read_failed: {e}'}
-
-    total_chunks = manifest['total_chunks']
-    workflow_id = manifest['workflow_id']
-    document_id = manifest['document_id']
+    total_chunks = event.get('ocr_total_chunks', 0)
+    if not total_chunks:
+        print('Missing ocr_total_chunks in event')
+        return {**event, 'merge_status': 'error', 'reason': 'missing_total_chunks'}
 
     # Count completed and failed chunks
     json_keys, failed_keys = list_chunk_files(s3, bucket, base_path)
@@ -171,13 +169,7 @@ def handler(event, _context):
 
     print(f'[{workflow_id}] Chunk progress: {completed} completed, {failed} failed, {total_done}/{total_chunks} total')
 
-    if total_done < total_chunks:
-        # Not all chunks done yet, wait for more
-        return {'status': 'waiting', 'completed': completed, 'failed': failed, 'total': total_chunks}
-
-    # All chunks are done
     if failed > 0:
-        # Some chunks failed -> mark workflow as failed
         error_msg = f'{failed}/{total_chunks} OCR chunks failed'
         print(f'[{workflow_id}] {error_msg}')
 
@@ -189,12 +181,11 @@ def handler(event, _context):
             error=error_msg,
         )
         record_step_error(workflow_id, StepName.PADDLEOCR_PROCESSOR, error_msg)
-
         cleanup_chunks(s3, bucket, base_path)
-        return {'status': 'failed', 'error': error_msg}
+        raise RuntimeError(error_msg)
 
     # All chunks succeeded -> merge
-    print(f'[{workflow_id}] All {total_chunks} chunks completed, merging...')
+    print(f'[{workflow_id}] Merging {completed} chunks...')
 
     merged = merge_chunk_results(s3, bucket, json_keys)
 
@@ -221,12 +212,11 @@ def handler(event, _context):
     )
     record_step_complete(workflow_id, StepName.PADDLEOCR_PROCESSOR)
 
-    # Clean up chunk files
     cleanup_chunks(s3, bucket, base_path)
 
     return {
-        'status': 'completed',
-        'output_uri': ocr_output_uri,
-        'page_count': page_count,
-        'chunks_merged': total_chunks,
+        **event,
+        'ocr_status': 'COMPLETED',
+        'ocr_output_uri': ocr_output_uri,
+        'ocr_page_count': page_count,
     }

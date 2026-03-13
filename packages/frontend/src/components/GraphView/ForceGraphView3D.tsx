@@ -402,13 +402,13 @@ export default function ForceGraphView({
     // Step 1: determine which node IDs pass type + page range filter
     const typePassIds = new Set<string>();
     for (const node of data.nodes) {
-      if (node.type === 'entity' || node.type === 'cluster') {
+      if (node.label === 'entity' || node.label === 'cluster') {
         const entityType =
           (node.properties?.entity_type as string) ?? 'CONCEPT';
         if (hiddenTypes.has(entityType)) continue;
       }
       if (
-        (node.type === 'segment' || node.type === 'analysis') &&
+        (node.label === 'segment' || node.label === 'analysis') &&
         focusPage != null
       ) {
         const idx = node.properties?.segment_index as number | undefined;
@@ -425,7 +425,7 @@ export default function ForceGraphView({
     if (focusPage != null) {
       for (const node of data.nodes) {
         if (
-          node.type === 'segment' &&
+          node.label === 'segment' &&
           typePassIds.has(node.id) &&
           (node.properties?.segment_index as number) === focusPage
         ) {
@@ -440,7 +440,7 @@ export default function ForceGraphView({
         const desc = (
           (node.properties?.description as string) ?? ''
         ).toLowerCase();
-        if (node.label.toLowerCase().includes(query) || desc.includes(query)) {
+        if (node.name.toLowerCase().includes(query) || desc.includes(query)) {
           matchedIds.add(node.id);
         }
       }
@@ -491,13 +491,13 @@ export default function ForceGraphView({
       if (!node) continue;
       const isMatched =
         (hasActiveFilter && seeds.has(id)) || node.properties?.matched === true;
-      if (node.type === 'entity') {
+      if (node.label === 'entity') {
         const entityType =
           (node.properties?.entity_type as string) ?? 'CONCEPT';
         const color = getEntityColor(entityType);
         nodes.push({
           id: node.id,
-          label: node.label,
+          label: node.name,
           nodeType: 'entity',
           entityType,
           description: (node.properties?.description as string) || undefined,
@@ -505,9 +505,9 @@ export default function ForceGraphView({
           color,
           radius: isMatched ? 11 : 8,
         });
-      } else if (node.type === 'segment') {
+      } else if (node.label === 'segment') {
         const segIdx = node.properties?.segment_index as number | undefined;
-        const segLabel = segIdx != null ? `Page ${segIdx + 1}` : node.label;
+        const segLabel = segIdx != null ? `Page ${segIdx + 1}` : node.name;
         nodes.push({
           id: node.id,
           label: segLabel,
@@ -516,9 +516,9 @@ export default function ForceGraphView({
           color: SEGMENT_COLOR,
           radius: isMatched ? 16 : 13,
         });
-      } else if (node.type === 'analysis') {
+      } else if (node.label === 'analysis') {
         const qaIdx = node.properties?.qa_index as number | undefined;
-        const qaLabel = qaIdx != null ? `QA ${qaIdx + 1}` : node.label;
+        const qaLabel = qaIdx != null ? `QA ${qaIdx + 1}` : node.name;
         nodes.push({
           id: node.id,
           label: qaLabel,
@@ -528,23 +528,23 @@ export default function ForceGraphView({
           color: ANALYSIS_COLOR,
           radius: isMatched ? 10 : 7,
         });
-      } else if (node.type === 'document') {
+      } else if (node.label === 'document') {
         nodes.push({
           id: node.id,
-          label: node.label,
+          label: node.name,
           nodeType: 'document',
           matched: isMatched,
           color: DOCUMENT_COLOR,
           radius: isMatched ? 13 : 10,
         });
-      } else if (node.type === 'cluster') {
+      } else if (node.label === 'cluster') {
         const entityType =
           (node.properties?.entity_type as string) ?? 'CONCEPT';
         const color = getEntityColor(entityType);
         const count = (node.properties?.count as number) ?? 0;
         nodes.push({
           id: node.id,
-          label: node.label,
+          label: node.name,
           nodeType: 'cluster',
           entityType,
           description: `${count} entities. Click to expand.`,

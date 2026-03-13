@@ -23,10 +23,6 @@ export const SSM_KEYS = {
   WEBSOCKET_CALLBACK_URL: '/idp-v2/websocket/callback-url',
   WEBSOCKET_CONNECT_ROLE_ARN: '/idp-v2/websocket/connect-role-arn',
   // Preprocessing queues
-  PREPROCESS_OCR_QUEUE_URL: '/idp-v2/preprocess/ocr/queue-url',
-  PREPROCESS_BDA_QUEUE_URL: '/idp-v2/preprocess/bda/queue-url',
-  PREPROCESS_TRANSCRIBE_QUEUE_URL: '/idp-v2/preprocess/transcribe/queue-url',
-  PREPROCESS_WEBCRAWLER_QUEUE_URL: '/idp-v2/preprocess/webcrawler/queue-url',
   PREPROCESS_WORKFLOW_QUEUE_URL: '/idp-v2/preprocess/workflow/queue-url',
   QA_REGENERATOR_FUNCTION_ARN: '/idp-v2/qa-regenerator/function-arn',
   LANCEDB_FUNCTION_ARN: '/idp-v2/lancedb/function-arn',
@@ -42,4 +38,6 @@ export const SSM_KEYS = {
   NEPTUNE_SECURITY_GROUP_ID: '/idp-v2/neptune/security-group-id',
   GRAPH_SERVICE_FUNCTION_ARN: '/idp-v2/graph/function-arn',
   GRAPH_DELETE_QUEUE_URL: '/idp-v2/graph/delete-queue-url',
+  OCR_LAMBDA_PROCESSOR_FUNCTION_NAME:
+    '/idp-v2/ocr/lambda-processor-function-name',
 } as const;

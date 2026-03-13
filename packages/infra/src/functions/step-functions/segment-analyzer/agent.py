@@ -1,9 +1,11 @@
+import io
 import os
 import tempfile
 from typing import Optional
 from urllib.parse import urlparse
 
 import boto3
+from PIL import Image
 from strands import Agent
 from strands.models import BedrockModel, CacheConfig
 
@@ -48,6 +50,42 @@ class VisionReactAgent:
         except Exception as e:
             print(f'Failed to load prompt from S3 ({s3_key}): {e}')
             return ''
+
+    def _detect_image_format(self, image_data: bytes) -> str:
+        if image_data[:8] == b'\x89PNG\r\n\x1a\n':
+            return 'png'
+        if image_data[:2] == b'\xff\xd8':
+            return 'jpeg'
+        if image_data[:4] == b'GIF8':
+            return 'gif'
+        if image_data[:4] == b'RIFF' and image_data[8:12] == b'WEBP':
+            return 'webp'
+        return 'png'
+
+    def _prepare_image_for_agent(self, image_data: bytes, max_size_mb: float = 3.75) -> bytes:
+        max_bytes = int(max_size_mb * 1024 * 1024)
+        if len(image_data) <= max_bytes:
+            return image_data
+
+        try:
+            image = Image.open(io.BytesIO(image_data))
+            target_ratio = (max_bytes * 0.8 / len(image_data)) ** 0.5
+            new_size = (int(image.size[0] * target_ratio), int(image.size[1] * target_ratio))
+            resized = image.resize(new_size, Image.LANCZOS)
+
+            buf = io.BytesIO()
+            if image.mode in ('RGBA', 'LA'):
+                resized.save(buf, format='PNG', optimize=True)
+            else:
+                if resized.mode == 'RGBA':
+                    resized = resized.convert('RGB')
+                resized.save(buf, format='JPEG', quality=85, optimize=True)
+
+            print(f'Agent image resized: {image.size} -> {new_size}')
+            return buf.getvalue()
+        except Exception as e:
+            print(f'Agent image resize failed: {e}')
+            return image_data
 
     def _download_image(self, image_uri: str) -> Optional[bytes]:
         if not image_uri:
@@ -189,24 +227,37 @@ class VisionReactAgent:
             system_prompt = self._load_prompt('system_prompt')
 
         if not system_prompt:
-            if is_text:
-                system_prompt = """You are a Technical Document Analysis Expert. Analyze text documents thoroughly.
+            if is_video:
+                system_prompt = """You are a Video Analysis Agent. Extract structured, searchable information from video content.
 
-When analyzing text content:
-1. Read and understand the provided text content carefully.
-2. Extract key information, main topics, and important details.
-3. Identify structure, sections, and organization.
-4. Provide comprehensive analysis.
+Follow this workflow:
+1. ASSESS: Determine if the segment has substantive content or is empty/dead air.
+2. EXTRACT: Call extract_video_script first for speech, then analyze_video for visual content. Extract ALL content.
+3. ANALYZE: Add analysis only if it provides value beyond the raw extraction.
+
+Do NOT report STT corrections or upstream processor fixes. Just output the correct content silently.
+
+{user_instructions}"""
+            elif is_text:
+                system_prompt = """You are a Text Document Analysis Agent. Extract structured, searchable information from text documents.
+
+Follow this workflow:
+1. ASSESS: Determine if the text has substantive content to extract.
+2. EXTRACT: Reproduce all text exactly as provided. Do not summarize or paraphrase. Extract every element.
+3. ANALYZE: Add analysis only if it provides value beyond the raw extraction.
 
 {user_instructions}"""
             else:
-                system_prompt = """You are a Technical Document Analysis Expert. Analyze documents thoroughly using available tools.
+                system_prompt = """You are a Document Analysis Agent. Extract structured, searchable information from document images.
 
-When analyzing:
-1. First verify image orientation. If text appears rotated or upside down, use rotate_image tool.
-2. Use analyze_image tool with specific, targeted questions.
-3. Explore multiple aspects: text, visuals, layout, data.
-4. Provide comprehensive analysis.
+You receive the document image directly. Use your vision as the primary source of truth.
+
+Follow this workflow:
+1. ASSESS: Look at the image. Determine if the page has content to extract or is blank/decorative.
+2. EXTRACT: Extract ALL content from top to bottom. Compare against upstream processor results and correct errors. Do not skip any section.
+3. ANALYZE: Add analysis only if it provides value beyond the raw extraction.
+
+Use the analyze_image tool only when your direct vision cannot read specific content accurately (dense tables, small text, fine details).
 
 {user_instructions}"""
 
@@ -220,7 +271,7 @@ When analyzing:
         system_prompt = system_prompt.format(user_instructions=user_instructions_block)
 
         # Add language instruction to system prompt
-        system_prompt = f"{system_prompt}\n\nIMPORTANT: You MUST provide all analysis, questions, and answers in {language_name}."
+        system_prompt = f"{system_prompt}\n\nIMPORTANT: You MUST use {language_name} for ALL output including: tool call questions (analyze_image, analyze_video, extract_video_script arguments), analysis text, section headers, and descriptions. The only exception is preserving original document text exactly as written."
 
         if is_video:
             user_query = self._load_prompt('video_user_query')
@@ -231,20 +282,18 @@ When analyzing:
                     language=language_name
                 )
             else:
-                user_query = f"""Please analyze the following video segment (chapter {segment_index + 1}).
+                user_query = f"""Analyze video segment (chapter {segment_index + 1}).
 
-Previous analysis context:
+Upstream processor results:
 {context}
 
-Use the analyze_video tool to systematically analyze the video content and provide results in the following format:
+Step 1: ASSESS - Is this a segment with substantive content or dead air?
+Step 2: EXTRACT - Call extract_video_script first, then analyze_video for visual content. Extract all speech, actions, text overlays, and events.
+Step 3: ANALYZE - Add analysis only if needed.
 
-## Video Overview
-## Key Events and Actions
-## Visual Elements
-## Audio/Speech Content
-## Key Findings
+Output as: ## Video Overview, ## Speech Content, ## Visual Content, ## Key Information
 
-IMPORTANT: Provide all analysis in {language_name}."""
+IMPORTANT: Provide all output in {language_name}."""
         elif is_text:
             user_query = self._load_prompt('text_user_query')
             if user_query:
@@ -254,26 +303,18 @@ IMPORTANT: Provide all analysis in {language_name}."""
                     language=language_name
                 )
             else:
-                user_query = f"""Please analyze the following text document segment (chunk {segment_index + 1}).
+                user_query = f"""Analyze text document segment (chunk {segment_index + 1}).
 
 Text content:
 {context}
 
-Analyze the text content directly and provide results in the following format:
+Step 1: ASSESS - Is this a segment with substantive content or empty/boilerplate?
+Step 2: EXTRACT - Reproduce all text exactly as provided with original structure and formatting.
+Step 3: ANALYZE - Add analysis only if needed.
 
-## Original Text
-(Preserve the original text with proper formatting)
+Output as: ## Original Text, ## Document Overview, ## Key Information
 
-## Content Summary
-(Brief summary of the main content)
-
-## Key Information
-(Important facts, data, and details extracted from the text)
-
-## Structure Analysis
-(Document structure, sections, formatting if applicable)
-
-IMPORTANT: Provide all analysis in {language_name}."""
+IMPORTANT: Provide all output in {language_name}."""
         else:
             user_query = self._load_prompt('user_query')
             if user_query:
@@ -283,20 +324,18 @@ IMPORTANT: Provide all analysis in {language_name}."""
                     language=language_name
                 )
             else:
-                user_query = f"""Please analyze the following document segment (page {segment_index + 1}).
+                user_query = f"""Analyze document segment (page {segment_index + 1}).
 
-Previous analysis context:
+Upstream processor results:
 {context}
 
-Use the available tools to systematically analyze the document and provide results in the following format:
+Step 1: ASSESS - Is this a content page or blank/decorative?
+Step 2: EXTRACT - Go through the entire page top to bottom. Extract every text element, table, figure, label, header, footer. Compare against upstream results and correct errors.
+Step 3: ANALYZE - Add analysis only if needed.
 
-## Document Overview
-## Key Findings
-## Technical Details
-## Visual Elements
-## Recommendations
+Output as: ## Original Text, ## Document Overview, ## Key Information, ## Analysis Notes
 
-IMPORTANT: Provide all analysis in {language_name}."""
+IMPORTANT: Provide all output in {language_name}."""
 
         agent = Agent(
             model=model,
@@ -308,7 +347,19 @@ IMPORTANT: Provide all analysis in {language_name}."""
             print(f'Starting analysis for document {document_id}, segment {segment_index}')
             print(f'Segment type: {segment_type}, Video: {is_video}, Text: {is_text}')
 
-            result = agent(user_query)
+            # Build user message: multimodal for PAGE with image
+            if self.current_image_data and not is_video and not is_text:
+                prepared = self._prepare_image_for_agent(self.current_image_data)
+                fmt = self._detect_image_format(prepared)
+                user_message = [
+                    {'image': {'format': fmt, 'source': {'bytes': prepared}}},
+                    {'text': user_query}
+                ]
+                print(f'Sending multimodal message (image {fmt}, {len(prepared)} bytes)')
+            else:
+                user_message = user_query
+
+            result = agent(user_message)
             response_text = str(result)
 
             print(f'Analysis completed. Steps: {len(self.analysis_steps)}')
@@ -322,7 +373,30 @@ IMPORTANT: Provide all analysis in {language_name}."""
             }
 
         except Exception as e:
-            print(f'Agent execution error: {e}')
+            error_str = str(e)
+            error_type = type(e).__name__
+            print(f'Agent execution error ({error_type}): {error_str}')
+
+            # Raise retryable errors so Step Functions can retry
+            retryable_keywords = [
+                'ThrottlingException',
+                'TooManyRequestsException',
+                'ServiceUnavailableException',
+                'ModelTimeoutException',
+                'modelStreamErrorException',
+            ]
+            if any(kw in error_str or kw in error_type for kw in retryable_keywords):
+                raise
+
+            # Raise access errors so they surface clearly
+            access_keywords = [
+                'AccessDeniedException',
+                'UnauthorizedAccess',
+                'ValidationException',
+            ]
+            if any(kw in error_str or kw in error_type for kw in access_keywords):
+                raise
+
             return {
                 'success': False,
                 'response': f'Analysis failed: {e}',

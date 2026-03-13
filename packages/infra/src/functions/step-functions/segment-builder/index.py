@@ -610,10 +610,10 @@ def handler(event, _context):
                 print(f'Parser: {len(parser_results)} pages')
 
         # 5. Read transcribe results (for video/audio when transcribe completed)
+        # ParallelPreprocessing guarantees transcribe is done before this step runs,
+        # so we only need to check use_transcribe flag.
         transcribe_data = {}
-        preprocess_status = event.get('preprocess_check', {}).get('status', {})
-        transcribe_completed = preprocess_status.get('transcribe', {}).get('status') == 'completed'
-        if is_media and transcribe_completed:
+        if is_media and use_transcribe:
             print('Reading transcribe results...')
             transcribe_data = parse_transcribe_result(file_uri)
             if transcribe_data:

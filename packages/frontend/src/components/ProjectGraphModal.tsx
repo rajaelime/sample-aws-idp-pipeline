@@ -123,7 +123,7 @@ export default function ProjectGraphModal({
     if (!graphData) return [];
     const types = new Set<string>();
     for (const node of graphData.nodes) {
-      if (node.type === 'entity') {
+      if (node.label === 'entity') {
         types.add((node.properties?.entity_type as string) ?? 'CONCEPT');
       }
     }
@@ -132,7 +132,7 @@ export default function ProjectGraphModal({
 
   const docCount = useMemo(() => {
     if (!graphData) return 0;
-    return graphData.nodes.filter((n) => n.type === 'document').length;
+    return graphData.nodes.filter((n) => n.label === 'document').length;
   }, [graphData]);
 
   const toggleEntityType = useCallback((type: string) => {
@@ -174,8 +174,8 @@ export default function ProjectGraphModal({
       const entities =
         (link.properties.shared_entities as SharedEntity[]) ?? [];
       setEdgeDetail({
-        sourceLabel: sourceNode?.label ?? link.source,
-        targetLabel: targetNode?.label ?? link.target,
+        sourceLabel: sourceNode?.name ?? link.source,
+        targetLabel: targetNode?.name ?? link.target,
         sharedCount:
           (link.properties.shared_count as number) ?? entities.length,
         entities,

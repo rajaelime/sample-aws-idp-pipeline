@@ -51,6 +51,17 @@ def query_documents(project_id: str) -> list[Document]:
     return [Document(**item) for item in response.get("Items", [])]
 
 
+def update_document_status(project_id: str, document_id: str, status: str) -> None:
+    table = get_table()
+    now = now_iso()
+    table.update_item(
+        Key=make_document_key(project_id, document_id),
+        UpdateExpression="SET #data.#status = :status, updated_at = :updated_at",
+        ExpressionAttributeNames={"#data": "data", "#status": "status"},
+        ExpressionAttributeValues={":status": status, ":updated_at": now},
+    )
+
+
 def delete_document_item(project_id: str, document_id: str) -> None:
     table = get_table()
     table.delete_item(Key=make_document_key(project_id, document_id))

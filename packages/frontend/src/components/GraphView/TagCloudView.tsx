@@ -121,10 +121,10 @@ export default function TagCloudView({
     const entityInfo = new Map<string, { label: string; entityType: string }>();
 
     for (const node of data.nodes) {
-      if (node.type !== 'entity') continue;
+      if (node.label !== 'entity') continue;
       const entityType = (node.properties?.entity_type as string) ?? 'CONCEPT';
       if (hiddenTypes.has(entityType)) continue;
-      entityInfo.set(node.id, { label: node.label, entityType });
+      entityInfo.set(node.id, { label: node.name, entityType });
       entityEdgeCount.set(node.id, 0);
     }
 

@@ -177,6 +177,8 @@ const getStatusBadge = (status: string) => {
       'bg-yellow-50 text-yellow-600 dark:bg-yellow-900/20 dark:text-yellow-500',
     in_progress:
       'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-500',
+    reanalyzing:
+      'bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-500',
     failed: 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-500',
     uploading:
       'bg-cyan-50 text-cyan-600 dark:bg-cyan-900/20 dark:text-cyan-500',

@@ -45,11 +45,6 @@ bdaStack.addDependency(eventStack);
 const transcribeStack = new TranscribeStack(app, 'IDP-V2-Transcribe', { env });
 transcribeStack.addDependency(eventStack);
 
-const workflowStack = new WorkflowStack(app, 'IDP-V2-Workflow', { env });
-workflowStack.addDependency(storageStack);
-workflowStack.addDependency(eventStack);
-workflowStack.addDependency(neptuneStack);
-
 const websocketStack = new WebsocketStack(app, 'IDP-V2-Websocket', { env });
 websocketStack.addDependency(storageStack);
 websocketStack.addDependency(vpcStack);
@@ -57,7 +52,6 @@ websocketStack.addDependency(vpcStack);
 const mcpStack = new McpStack(app, 'IDP-V2-Mcp', { env });
 mcpStack.addDependency(storageStack);
 mcpStack.addDependency(websocketStack);
-mcpStack.addDependency(workflowStack);
 mcpStack.addDependency(vpcStack);
 
 const workerStack = new WorkerStack(app, 'IDP-V2-Worker', { env });
@@ -78,10 +72,20 @@ const webcrawlerStack = new WebcrawlerStack(app, 'IDP-V2-Webcrawler', {
 webcrawlerStack.addDependency(eventStack);
 webcrawlerStack.addDependency(agentStack);
 
+const workflowStack = new WorkflowStack(app, 'IDP-V2-Workflow', { env });
+workflowStack.addDependency(storageStack);
+workflowStack.addDependency(eventStack);
+workflowStack.addDependency(neptuneStack);
+workflowStack.addDependency(ocrStack);
+workflowStack.addDependency(webcrawlerStack);
+workflowStack.addDependency(agentStack);
+workflowStack.addDependency(vpcStack);
+
 const applicationStack = new ApplicationStack(app, 'IDP-V2-Application', {
   env,
   crossRegionReferences: true,
 });
+applicationStack.addDependency(storageStack);
 applicationStack.addDependency(agentStack);
 applicationStack.addDependency(websocketStack);
 applicationStack.addDependency(mcpStack);

@@ -27,10 +27,6 @@ const __dirname = path.dirname(__filename);
  * Handles document upload events and distributes to preprocessing queues.
  */
 export class EventStack extends Stack {
-  public readonly ocrQueue: sqs.Queue;
-  public readonly bdaQueue: sqs.Queue;
-  public readonly transcribeQueue: sqs.Queue;
-  public readonly webcrawlerQueue: sqs.Queue;
   public readonly workflowQueue: sqs.Queue;
 
   constructor(scope: Construct, id: string, props?: StackProps) {
@@ -64,62 +60,6 @@ export class EventStack extends Stack {
     // SQS Queues with Dead Letter Queues
     // ========================================
 
-    // OCR Queue (for PDF/Image processing via SageMaker)
-    const ocrDlq = new sqs.Queue(this, 'OcrDLQ', {
-      queueName: 'idp-v2-ocr-dlq',
-      retentionPeriod: Duration.days(14),
-    });
-    this.ocrQueue = new sqs.Queue(this, 'OcrQueue', {
-      queueName: 'idp-v2-ocr-queue',
-      visibilityTimeout: Duration.minutes(15),
-      deadLetterQueue: {
-        queue: ocrDlq,
-        maxReceiveCount: 3,
-      },
-    });
-
-    // BDA Queue (for Bedrock Document Analysis)
-    const bdaDlq = new sqs.Queue(this, 'BdaDLQ', {
-      queueName: 'idp-v2-bda-dlq',
-      retentionPeriod: Duration.days(14),
-    });
-    this.bdaQueue = new sqs.Queue(this, 'BdaQueue', {
-      queueName: 'idp-v2-bda-queue',
-      visibilityTimeout: Duration.minutes(15),
-      deadLetterQueue: {
-        queue: bdaDlq,
-        maxReceiveCount: 3,
-      },
-    });
-
-    // Transcribe Queue (for video/audio transcription)
-    const transcribeDlq = new sqs.Queue(this, 'TranscribeDLQ', {
-      queueName: 'idp-v2-transcribe-dlq',
-      retentionPeriod: Duration.days(14),
-    });
-    this.transcribeQueue = new sqs.Queue(this, 'TranscribeQueue', {
-      queueName: 'idp-v2-transcribe-queue',
-      visibilityTimeout: Duration.minutes(30),
-      deadLetterQueue: {
-        queue: transcribeDlq,
-        maxReceiveCount: 3,
-      },
-    });
-
-    // WebCrawler Queue (for AgentCore invocation)
-    const webcrawlerDlq = new sqs.Queue(this, 'WebcrawlerDLQ', {
-      queueName: 'idp-v2-webcrawler-dlq',
-      retentionPeriod: Duration.days(14),
-    });
-    this.webcrawlerQueue = new sqs.Queue(this, 'WebcrawlerQueue', {
-      queueName: 'idp-v2-webcrawler-queue',
-      visibilityTimeout: Duration.minutes(5),
-      deadLetterQueue: {
-        queue: webcrawlerDlq,
-        maxReceiveCount: 3,
-      },
-    });
-
     // Workflow Queue (for Step Functions to consume)
     const workflowDlq = new sqs.Queue(this, 'WorkflowDLQ', {
       queueName: 'idp-v2-workflow-dlq',
@@ -137,46 +77,6 @@ export class EventStack extends Stack {
     // ========================================
     // Store Queue URLs in SSM
     // ========================================
-
-    new ssm.StringParameter(this, 'OcrQueueUrlParam', {
-      parameterName: SSM_KEYS.PREPROCESS_OCR_QUEUE_URL,
-      stringValue: this.ocrQueue.queueUrl,
-    });
-
-    new ssm.StringParameter(this, 'OcrQueueArnParam', {
-      parameterName: '/idp-v2/preprocess/ocr/queue-arn',
-      stringValue: this.ocrQueue.queueArn,
-    });
-
-    new ssm.StringParameter(this, 'BdaQueueUrlParam', {
-      parameterName: SSM_KEYS.PREPROCESS_BDA_QUEUE_URL,
-      stringValue: this.bdaQueue.queueUrl,
-    });
-
-    new ssm.StringParameter(this, 'BdaQueueArnParam', {
-      parameterName: '/idp-v2/preprocess/bda/queue-arn',
-      stringValue: this.bdaQueue.queueArn,
-    });
-
-    new ssm.StringParameter(this, 'TranscribeQueueUrlParam', {
-      parameterName: SSM_KEYS.PREPROCESS_TRANSCRIBE_QUEUE_URL,
-      stringValue: this.transcribeQueue.queueUrl,
-    });
-
-    new ssm.StringParameter(this, 'TranscribeQueueArnParam', {
-      parameterName: '/idp-v2/preprocess/transcribe/queue-arn',
-      stringValue: this.transcribeQueue.queueArn,
-    });
-
-    new ssm.StringParameter(this, 'WebcrawlerQueueUrlParam', {
-      parameterName: SSM_KEYS.PREPROCESS_WEBCRAWLER_QUEUE_URL,
-      stringValue: this.webcrawlerQueue.queueUrl,
-    });
-
-    new ssm.StringParameter(this, 'WebcrawlerQueueArnParam', {
-      parameterName: '/idp-v2/preprocess/webcrawler/queue-arn',
-      stringValue: this.webcrawlerQueue.queueArn,
-    });
 
     new ssm.StringParameter(this, 'WorkflowQueueUrlParam', {
       parameterName: SSM_KEYS.PREPROCESS_WORKFLOW_QUEUE_URL,
@@ -312,26 +212,14 @@ export class EventStack extends Stack {
       layers: [sharedLayer],
       environment: {
         BACKEND_TABLE_NAME: backendTableName,
-        OCR_QUEUE_URL: this.ocrQueue.queueUrl,
-        BDA_QUEUE_URL: this.bdaQueue.queueUrl,
-        TRANSCRIBE_QUEUE_URL: this.transcribeQueue.queueUrl,
         WORKFLOW_QUEUE_URL: this.workflowQueue.queueUrl,
         SAGEMAKER_ENDPOINT_NAME: PADDLEOCR_ENDPOINT_NAME_VALUE,
       },
     });
 
-    typeDetection.addEnvironment(
-      'WEBCRAWLER_QUEUE_URL',
-      this.webcrawlerQueue.queueUrl,
-    );
-
     // Grant permissions
     backendTable.grantReadWriteData(typeDetection);
     documentBucket.grantRead(typeDetection);
-    this.ocrQueue.grantSendMessages(typeDetection);
-    this.bdaQueue.grantSendMessages(typeDetection);
-    this.transcribeQueue.grantSendMessages(typeDetection);
-    this.webcrawlerQueue.grantSendMessages(typeDetection);
     this.workflowQueue.grantSendMessages(typeDetection);
 
     // Grant permission to trigger SageMaker scale-out

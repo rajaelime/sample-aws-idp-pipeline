@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 interface GraphNode {
   id: string;
+  name: string;
   label: string;
-  type: string;
   properties: Record<string, unknown>;
 }
 
@@ -129,7 +129,7 @@ export function useGraphData({
         data.nodes
           .filter(
             (n) =>
-              n.type === 'entity' && n.properties?.entity_type === entityType,
+              n.label === 'entity' && n.properties?.entity_type === entityType,
           )
           .map((n) => n.id),
       );

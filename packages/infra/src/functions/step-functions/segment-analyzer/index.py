@@ -18,6 +18,21 @@ from agent import VisionReactAgent
 
 is_first_segment = {}
 
+# Reuse agent across warm starts to avoid creating new boto3 clients each invocation
+_cached_agent = None
+
+
+def _get_agent():
+    global _cached_agent
+    if _cached_agent is None:
+        _cached_agent = VisionReactAgent(
+            model_id=os.environ['BEDROCK_MODEL_ID'],
+            region=os.environ.get('AWS_REGION', 'us-east-1'),
+            video_model_id=os.environ['BEDROCK_VIDEO_MODEL_ID'],
+            bucket_owner_account_id=os.environ.get('BUCKET_OWNER_ACCOUNT_ID', '')
+        )
+    return _cached_agent
+
 
 def handler(event, _context):
     print(f'Event: {json.dumps(event)}')
@@ -94,12 +109,7 @@ def handler(event, _context):
     update_segment_status(file_uri, segment_index, SegmentStatus.ANALYZING)
 
     try:
-        agent = VisionReactAgent(
-            model_id=os.environ['BEDROCK_MODEL_ID'],
-            region=os.environ.get('AWS_REGION', 'us-east-1'),
-            video_model_id=os.environ['BEDROCK_VIDEO_MODEL_ID'],
-            bucket_owner_account_id=os.environ.get('BUCKET_OWNER_ACCOUNT_ID', '')
-        )
+        agent = _get_agent()
 
         # Use reanalysis_instructions if provided, otherwise use project document_prompt
         effective_instructions = reanalysis_instructions if reanalysis_instructions else document_prompt
@@ -125,6 +135,18 @@ def handler(event, _context):
         analysis_steps = result.get('analysis_steps', [])
         is_media = segment_type in ('VIDEO', 'CHAPTER', 'AUDIO')
 
+        # Save main agent's final response first
+        response_text = result.get('response', '')
+        if response_text:
+            label = f'Chapter {segment_index + 1} Analysis' if is_media else f'Page {segment_index + 1} Analysis'
+            add_segment_ai_analysis(
+                file_uri=file_uri,
+                segment_index=segment_index,
+                analysis_query=label,
+                content=response_text
+            )
+
+        # Save tool call results after
         for step in analysis_steps:
             question = step.get('question', '')
             answer = step.get('answer', '')
@@ -135,14 +157,6 @@ def handler(event, _context):
                     analysis_query=question,
                     content=answer
                 )
-
-        if not analysis_steps:
-            add_segment_ai_analysis(
-                file_uri=file_uri,
-                segment_index=segment_index,
-                analysis_query=f'Chapter {segment_index + 1}' if is_media else f'Page {segment_index + 1}',
-                content=result.get('response', '')
-            )
 
         return {
             'workflow_id': workflow_id,

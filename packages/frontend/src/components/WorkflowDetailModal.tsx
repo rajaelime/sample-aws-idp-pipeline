@@ -176,7 +176,7 @@ interface WorkflowDetailModalProps {
   projectColor: number;
   loadingWorkflow: boolean;
   onClose: () => void;
-  onReanalyze?: (userInstructions: string) => Promise<void>;
+  onReanalyze?: (userInstructions: string, language?: string) => Promise<void>;
   reanalyzing?: boolean;
   onRegenerateQa?: (
     segmentIndex: number,
@@ -295,6 +295,9 @@ export default function WorkflowDetailModal({
 
   const [showReanalyzeModal, setShowReanalyzeModal] = useState(false);
   const [reanalyzeInstructions, setReanalyzeInstructions] = useState('');
+  const [reanalyzeLanguage, setReanalyzeLanguage] = useState(
+    workflow.language || 'en',
+  );
   const [regenerateTarget, setRegenerateTarget] = useState<{
     qaIndex: number;
     question: string;
@@ -367,7 +370,7 @@ export default function WorkflowDetailModal({
     if (!graphData) return [];
     const types = new Set<string>();
     for (const node of graphData.nodes) {
-      if (node.type === 'entity' || node.type === 'cluster') {
+      if (node.label === 'entity' || node.label === 'cluster') {
         types.add((node.properties?.entity_type as string) ?? 'CONCEPT');
       }
     }
@@ -393,7 +396,7 @@ export default function WorkflowDetailModal({
     if (!graphData) return 0;
     let max = 0;
     for (const node of graphData.nodes) {
-      if (node.type === 'segment' && node.properties?.segment_index != null) {
+      if (node.label === 'segment' && node.properties?.segment_index != null) {
         max = Math.max(max, node.properties.segment_index as number);
       }
     }
@@ -420,7 +423,7 @@ export default function WorkflowDetailModal({
 
   const handleExpandAll = useCallback(async () => {
     if (!graphData || !workflow.document_id) return;
-    const clusterNodes = graphData.nodes.filter((n) => n.type === 'cluster');
+    const clusterNodes = graphData.nodes.filter((n) => n.label === 'cluster');
     if (clusterNodes.length === 0) return;
     setExpandingAll(true);
     try {
@@ -707,7 +710,7 @@ export default function WorkflowDetailModal({
 
   const handleReanalyze = async () => {
     if (!onReanalyze) return;
-    await onReanalyze(reanalyzeInstructions);
+    await onReanalyze(reanalyzeInstructions, reanalyzeLanguage);
     setShowReanalyzeModal(false);
     setReanalyzeInstructions('');
   };
@@ -1202,7 +1205,7 @@ export default function WorkflowDetailModal({
                         />
                       </svg>
                     </button>
-                    <div className="flex gap-1 flex-1">
+                    <div className="flex gap-1 flex-1 items-center">
                       {['Web', 'BDA', 'OCR', 'Parser', 'STT', 'AI']
                         .filter((type) => {
                           if (type === 'Web')
@@ -1245,7 +1248,7 @@ export default function WorkflowDetailModal({
                                 setAnalysisPopup({
                                   type: 'ocr',
                                   content: '',
-                                  title: `OCR Content - Segment ${currentSegmentIndex + 1}`,
+                                  title: `OCR Content - Segment ${currentSegmentIndex + 1}${workflow?.ocr_model ? ` (${workflow.ocr_model}${(workflow.ocr_options as Record<string, string> | undefined)?.lang ? `, ${(workflow.ocr_options as Record<string, string>).lang}` : ''})` : ''}`,
                                   qaItems: [],
                                 });
                               } else if (type === 'STT') {
@@ -1710,70 +1713,16 @@ export default function WorkflowDetailModal({
                       )}
 
                     {workflow.file_type !== 'application/x-webreq' &&
-                      (workflow.use_bda ||
-                        workflow.use_ocr ||
-                        workflow.use_transcribe ||
-                        workflow.document_prompt) && (
+                      workflow.document_prompt && (
                         <div className="space-y-3">
-                          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                            {t(
-                              'workflow.processingOptions',
-                              'Processing Options',
-                            )}
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {workflow.use_bda && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
-                                BDA
-                              </span>
-                            )}
-                            {workflow.use_ocr && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-                                OCR
-                                {workflow.ocr_model && (
-                                  <span className="opacity-70">
-                                    ({workflow.ocr_model})
-                                  </span>
-                                )}
-                              </span>
-                            )}
-                            {workflow.use_transcribe &&
-                              (() => {
-                                const opts = workflow.transcribe_options as
-                                  | Record<string, string>
-                                  | undefined;
-                                const mode = opts?.language_mode;
-                                const modeLabel = mode
-                                  ? t(
-                                      `transcribe.summary${mode.charAt(0).toUpperCase()}${mode.slice(1)}`,
-                                      mode,
-                                    )
-                                  : null;
-                                return (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                                    Transcribe
-                                    {modeLabel && (
-                                      <span className="opacity-70">
-                                        ({modeLabel})
-                                      </span>
-                                    )}
-                                  </span>
-                                );
-                              })()}
+                          <div>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">
+                              {t('workflow.documentPrompt', 'Document Prompt')}
+                            </p>
+                            <p className="text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
+                              {workflow.document_prompt}
+                            </p>
                           </div>
-                          {workflow.document_prompt && (
-                            <div>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">
-                                {t(
-                                  'workflow.documentPrompt',
-                                  'Document Prompt',
-                                )}
-                              </p>
-                              <p className="text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
-                                {workflow.document_prompt}
-                              </p>
-                            </div>
-                          )}
                         </div>
                       )}
                   </div>
@@ -1880,7 +1829,7 @@ export default function WorkflowDetailModal({
                                         content: hasBlocks
                                           ? ''
                                           : (content as string),
-                                        title: `OCR Content - Segment ${currentSegmentIndex + 1}`,
+                                        title: `OCR Content - Segment ${currentSegmentIndex + 1}${workflow?.ocr_model ? ` (${workflow.ocr_model}${(workflow.ocr_options as Record<string, string> | undefined)?.lang ? `, ${(workflow.ocr_options as Record<string, string>).lang}` : ''})` : ''}`,
                                         qaItems: [],
                                       });
                                     } else if (type === 'stt') {
@@ -2628,16 +2577,34 @@ export default function WorkflowDetailModal({
                 {t('workflow.reanalyzeDescription')}
               </p>
             </div>
-            <div className="p-6">
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                {t('workflow.reanalyzeInstructions')}
-              </label>
-              <textarea
-                value={reanalyzeInstructions}
-                onChange={(e) => setReanalyzeInstructions(e.target.value)}
-                placeholder={t('workflow.reanalyzeInstructionsPlaceholder')}
-                className="w-full h-40 px-3 py-2 text-sm border border-black/10 dark:border-white/[0.12] rounded-lg bg-transparent dark:bg-white/[0.06] text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-              />
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  {t('workflow.language', 'Language')}
+                </label>
+                <select
+                  value={reanalyzeLanguage}
+                  onChange={(e) => setReanalyzeLanguage(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-black/10 dark:border-white/[0.12] rounded-lg bg-transparent dark:bg-white/[0.06] text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {LANGUAGES.map((lang) => (
+                    <option key={lang.code} value={lang.code}>
+                      {t(`languages.${lang.code}`)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  {t('workflow.reanalyzeInstructions')}
+                </label>
+                <textarea
+                  value={reanalyzeInstructions}
+                  onChange={(e) => setReanalyzeInstructions(e.target.value)}
+                  placeholder={t('workflow.reanalyzeInstructionsPlaceholder')}
+                  className="w-full h-40 px-3 py-2 text-sm border border-black/10 dark:border-white/[0.12] rounded-lg bg-transparent dark:bg-white/[0.06] text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+              </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 bg-transparent dark:bg-white/[0.03] border-t border-black/[0.08] dark:border-white/[0.08]">
               <button

@@ -801,8 +801,8 @@ def action_get_entity_graph(params: dict) -> dict:
     for d in doc_results:
         nodes.append({
             'id': d['did'],
-            'label': d['file_name'] or d['did'],
-            'type': 'document',
+            'name': d['file_name'] or d['did'],
+            'label': 'document',
             'properties': {'file_type': d.get('file_type', '')},
         })
 
@@ -908,8 +908,8 @@ def _build_document_graph_full(_project_id, document_id, params_both,
     for e in ent_results:
         nodes.append({
             'id': e['id'],
-            'label': e['name'],
-            'type': 'entity',
+            'name': e['name'],
+            'label': 'entity',
             'properties': {'entity_type': e['type']},
         })
 
@@ -961,8 +961,8 @@ def _build_document_graph_clustered(_project_id, document_id, params_both,
                 samples = []
         nodes.append({
             'id': cluster_id,
-            'label': f"{etype} ({c['cnt']})",
-            'type': 'cluster',
+            'name': f"{etype} ({c['cnt']})",
+            'label': 'cluster',
             'properties': {
                 'entity_type': etype,
                 'count': c['cnt'],
@@ -999,16 +999,16 @@ def _build_structure_nodes_edges(document_id, seg_results, analysis_results, nex
 
     nodes.append({
         'id': document_id,
-        'label': doc_file_name,
-        'type': 'document',
+        'name': doc_file_name,
+        'label': 'document',
         'properties': {},
     })
 
     for s in seg_results:
         nodes.append({
             'id': s['id'],
-            'label': f"Page {s['segment_index']}",
-            'type': 'segment',
+            'name': f"Page {s['segment_index']}",
+            'label': 'segment',
             'properties': {
                 'segment_index': s['segment_index'],
                 'workflow_id': s['workflow_id'],
@@ -1018,8 +1018,8 @@ def _build_structure_nodes_edges(document_id, seg_results, analysis_results, nex
     for a in analysis_results:
         nodes.append({
             'id': a['id'],
-            'label': f"QA {a.get('qa_index', 0) + 1}",
-            'type': 'analysis',
+            'name': f"QA {a.get('qa_index', 0) + 1}",
+            'label': 'analysis',
             'properties': {
                 'segment_index': a['segment_index'],
                 'qa_index': a.get('qa_index', 0),
@@ -1107,8 +1107,8 @@ def _build_paged_graph(document_id, params_q, seg_filter):
     for e in ent_results:
         nodes.append({
             'id': e['id'],
-            'label': e['name'],
-            'type': 'entity',
+            'name': e['name'],
+            'label': 'entity',
             'properties': {'entity_type': e['type']},
         })
     for m in mention_results:
@@ -1198,8 +1198,8 @@ def _build_search_graph(document_id, project_id, search_term):
     for e in ent_results:
         nodes.append({
             'id': e['id'],
-            'label': e['name'],
-            'type': 'entity',
+            'name': e['name'],
+            'label': 'entity',
             'properties': {
                 'entity_type': e['type'],
                 'matched': e['id'] in matched_ids,
@@ -1391,8 +1391,8 @@ def action_expand_entity_cluster(params: dict) -> dict:
     for e in ent_results:
         nodes.append({
             'id': e['id'],
-            'label': e['name'],
-            'type': 'entity',
+            'name': e['name'],
+            'label': 'entity',
             'properties': {'entity_type': e['type']},
         })
 
@@ -1434,8 +1434,8 @@ def action_expand_all_clusters(params: dict) -> dict:
     for e in ent_results:
         nodes.append({
             'id': e['id'],
-            'label': e['name'],
-            'type': 'entity',
+            'name': e['name'],
+            'label': 'entity',
             'properties': {'entity_type': e['type']},
         })
 
