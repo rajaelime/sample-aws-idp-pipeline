@@ -37,7 +37,7 @@ interface MarkdownRendererProps {
 export default function MarkdownRenderer({ children }: MarkdownRendererProps) {
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
       rehypePlugins={[rehypeRaw]}
       components={components}
     >
