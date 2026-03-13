@@ -741,7 +741,7 @@ function ArtifactsPage() {
                 viewingArtifact.filename.endsWith('.md') ? (
                   <div className="prose prose-sm prose-slate dark:prose-invert max-w-none [&_strong]:!text-inherit">
                     <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
+                      remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
                       rehypePlugins={[rehypeRaw]}
                     >
                       {viewerContent}

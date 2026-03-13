@@ -172,7 +172,9 @@ export default function GraphSearchResultModal({
 
               {/* Answer markdown */}
               <div className="prose prose-sm dark:prose-invert max-w-none text-slate-700 dark:text-slate-200 [&_strong]:!text-inherit [&_p]:leading-relaxed">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown
+                  remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
+                >
                   {data.answer ?? ''}
                 </ReactMarkdown>
               </div>
