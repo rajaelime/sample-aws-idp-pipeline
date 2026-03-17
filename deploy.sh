@@ -209,6 +209,39 @@ if [[ "$BUILD_STATUS" != "SUCCEEDED" ]]; then
     exit 1
 fi
 
+# Build and deploy Rust Lambda binaries via CodeBuild
+echo ""
+echo "Building Rust Lambda binaries..."
+
+RUST_PROJECTS=("idp-v2-toka-build" "idp-v2-lancedb-service-build")
+RUST_BUILD_IDS=()
+
+for RUST_PROJECT in "${RUST_PROJECTS[@]}"; do
+    echo "  Starting build: $RUST_PROJECT"
+    RUST_BUILD_ID=$(aws codebuild start-build --project-name "$RUST_PROJECT" --query 'build.id' --output text 2>/dev/null)
+    if [[ -n "$RUST_BUILD_ID" && "$RUST_BUILD_ID" != "None" ]]; then
+        RUST_BUILD_IDS+=("$RUST_BUILD_ID")
+        echo "    Build ID: $RUST_BUILD_ID"
+    else
+        echo "    Warning: Failed to start $RUST_PROJECT (skipping)"
+    fi
+done
+
+if [[ ${#RUST_BUILD_IDS[@]} -gt 0 ]]; then
+    echo ""
+    echo "Waiting for Rust builds to complete..."
+    for RUST_BUILD_ID in "${RUST_BUILD_IDS[@]}"; do
+        while true; do
+            RUST_STATUS=$(aws codebuild batch-get-builds --ids "$RUST_BUILD_ID" --query 'builds[0].buildStatus' --output text)
+            if [[ "$RUST_STATUS" == "SUCCEEDED" || "$RUST_STATUS" == "FAILED" || "$RUST_STATUS" == "STOPPED" ]]; then
+                echo "  $RUST_BUILD_ID: $RUST_STATUS"
+                break
+            fi
+            sleep 15
+        done
+    done
+fi
+
 # Clean up CodeBuild stack (no longer needed after build)
 echo ""
 echo "Cleaning up CodeBuild stack..."
