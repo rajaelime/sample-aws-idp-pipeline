@@ -10,8 +10,11 @@ interface LambdaContext {
 }
 
 export const handler = async (event: unknown, context: LambdaContext) => {
-  const toolName = context.clientContext?.custom?.bedrockAgentCoreToolName ?? '';
-  const action = toolName.includes('___') ? toolName.split('___').pop() : toolName;
+  const toolName =
+    context.clientContext?.custom?.bedrockAgentCoreToolName ?? '';
+  const action = toolName.includes('___')
+    ? toolName.split('___').pop()
+    : toolName;
 
   switch (action) {
     case 'search_image':
