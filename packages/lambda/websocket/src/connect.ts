@@ -45,7 +45,6 @@ export const connectHandler: APIGatewayProxyHandler = async (event) => {
       await valkey.set(KEYS.conn(connectionId), `${userSub}:${username}`);
       await valkey.sadd(KEYS.username(username), connectionId);
     }
-
   }
 
   return { statusCode: 200, body: 'Connected' };

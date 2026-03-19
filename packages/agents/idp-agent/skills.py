@@ -11,7 +11,7 @@ SKILLS_DIR = Path(__file__).parent / ".skills"
 def parse_skill_frontmatter(skill_md_path: Path) -> dict[str, str]:
     """SKILL.md frontmatter에서 name, description 추출."""
     result = {}
-    with open(skill_md_path, "r") as f:
+    with open(skill_md_path) as f:
         in_frontmatter = False
         for line in f:
             if line.strip() == "---":
@@ -63,7 +63,7 @@ def load_skill_content(skill_name: str) -> str | None:
     if not skill_md.exists():
         return None
 
-    with open(skill_md, "r") as f:
+    with open(skill_md) as f:
         content = f.read()
 
     # frontmatter 제거
