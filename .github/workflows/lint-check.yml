@@ -41,5 +41,5 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run lint (affected only)
-        run: pnpm nx affected --target=lint --base=origin/main --head=HEAD
+      - name: Run lint (all packages)
+        run: pnpm nx run-many --target=lint --all
