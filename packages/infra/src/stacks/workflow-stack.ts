@@ -250,10 +250,11 @@ export class WorkflowStack extends Stack {
     // LanceDB Service (Container Lambda)
     // ========================================
 
-    const lancedbServiceFunctionArn = ssm.StringParameter.valueForStringParameter(
-      this,
-      SSM_KEYS.LANCE_SERVICE_FUNCTION_ARN,
-    );
+    const lancedbServiceFunctionArn =
+      ssm.StringParameter.valueForStringParameter(
+        this,
+        SSM_KEYS.LANCE_SERVICE_FUNCTION_ARN,
+      );
     const lancedbService = lambda.Function.fromFunctionAttributes(
       this,
       'LanceDBService',

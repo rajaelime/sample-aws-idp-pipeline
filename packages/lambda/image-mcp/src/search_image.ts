@@ -68,7 +68,9 @@ async function searchUnsplash(
   });
 
   if (!response.ok) {
-    throw new Error(`Unsplash API error: ${response.status} ${response.statusText}`);
+    throw new Error(
+      `Unsplash API error: ${response.status} ${response.statusText}`,
+    );
   }
 
   const data = (await response.json()) as UnsplashSearchResponse;
@@ -102,7 +104,9 @@ async function uploadToS3(
   );
 }
 
-export const handler = async (event: SearchImageInput): Promise<SearchImageOutput> => {
+export const handler = async (
+  event: SearchImageInput,
+): Promise<SearchImageOutput> => {
   const { prompt, orientation, s3_key } = event;
 
   const accessKey = await getUnsplashAccessKey();
