@@ -240,7 +240,9 @@ def handler(event, _context):
     qa_index = event.get('qa_index', 0)
     question = event.get('question', '')
     user_instructions = event.get('user_instructions', '')
-    language = event.get('language', 'English')
+    language = event.get('language', 'en')
+    language_names = {'ko': 'Korean', 'en': 'English', 'ja': 'Japanese', 'zh': 'Chinese'}
+    language_name = language_names.get(language, 'English')
     workflow_id = event.get('workflow_id', '')
     document_id = event.get('document_id', '')
     project_id = event.get('project_id', 'default')
@@ -306,10 +308,10 @@ def handler(event, _context):
                 previous_qa=previous_qa,
                 question=question,
                 user_instructions=user_instructions or 'No additional instructions.',
-                language=language
+                language=language_name
             )
         else:
-            prompt = f'Answer this question about the document: {question}\n\nRespond in {language}.'
+            prompt = f'Answer this question about the document: {question}\n\nRespond in {language_name}.'
 
         # 6. Call Bedrock Claude vision API
         messages_content = []
@@ -379,6 +381,7 @@ def handler(event, _context):
         'qa_index': qa_index,
         'question': question,
         'content_combined': qa_content,
+        'language': language,
         'file_uri': file_uri,
         'file_type': file_type,
         'image_uri': image_uri,
