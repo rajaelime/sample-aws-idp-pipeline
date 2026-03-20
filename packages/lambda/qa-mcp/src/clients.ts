@@ -9,7 +9,6 @@ import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 const ddbClient = DynamoDBDocumentClient.from(new DynamoDBClient());
 const lambdaClient = new LambdaClient();
 
-
 interface WorkflowItem {
   PK: string;
   SK: string;
