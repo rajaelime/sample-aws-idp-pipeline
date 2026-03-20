@@ -52,6 +52,16 @@ export class LanceServiceStack extends Stack {
           LANCEDB_EXPRESS_BUCKET_NAME: lancedbExpressBucketName,
           LANCEDB_LOCK_TABLE_NAME: lancedbLockTableName,
         },
+        commandHooks: {
+          beforeBundling(): string[] {
+            return [
+              'apt-get update -qq && apt-get install -y -qq protobuf-compiler > /dev/null 2>&1',
+            ];
+          },
+          afterBundling(): string[] {
+            return [];
+          },
+        },
       },
     );
 
