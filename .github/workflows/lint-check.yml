@@ -2,14 +2,14 @@ name: Lint Check
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - 'packages/**'
       - 'eslint.config.mjs'
       - '.prettierrc'
       - '.github/workflows/lint-check.yml'
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - 'packages/**'
       - 'eslint.config.mjs'
