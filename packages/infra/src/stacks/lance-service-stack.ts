@@ -93,7 +93,5 @@ export class LanceServiceStack extends Stack {
       parameterName: SSM_KEYS.LANCE_SERVICE_FUNCTION_ARN,
       stringValue: lanceDbServiceFunction.functionArn,
     });
-
-
   }
 }
