@@ -275,6 +275,7 @@ def handler(event, _context):
                 'qa_index': qa_index,
                 'question': analysis_query,
                 'content_combined': qa_content,
+                'language': language,
                 'file_uri': file_uri,
                 'file_type': file_type,
                 'image_uri': image_uri,

@@ -53,6 +53,7 @@ def handler(event, _context):
                 'qa_index': qa_index,
                 'question': message.get('question', ''),
                 'content_combined': message.get('content_combined', ''),
+                'language': message.get('language'),
                 'file_uri': message.get('file_uri', ''),
                 'file_type': message.get('file_type', ''),
                 'image_uri': message.get('image_uri', ''),
