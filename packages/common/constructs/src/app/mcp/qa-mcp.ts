@@ -1,4 +1,4 @@
-import { Duration } from 'aws-cdk-lib';
+import { Duration, Stack, ArnFormat } from 'aws-cdk-lib';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Runtime, Architecture } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
@@ -14,6 +14,8 @@ export class QaMcp extends Construct {
   constructor(scope: Construct, id: string) {
     super(scope, id);
 
+    const stack = Stack.of(this);
+
     const backendTableName = StringParameter.valueForStringParameter(
       this,
       SSM_KEYS.BACKEND_TABLE_NAME,
@@ -24,10 +26,12 @@ export class QaMcp extends Construct {
       backendTableName,
     );
 
-    const qaRegeneratorFunctionArn = StringParameter.valueForStringParameter(
-      this,
-      SSM_KEYS.QA_REGENERATOR_FUNCTION_ARN,
-    );
+    const qaRegeneratorFunctionArn = stack.formatArn({
+      service: 'lambda',
+      resource: 'function',
+      resourceName: 'idp-v2-qa-regenerator',
+      arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+    });
 
     this.function = new NodejsFunction(this, 'Function', {
       entry: path.resolve(
