@@ -224,10 +224,11 @@ export class OcrStack extends Stack {
             return [];
           },
           afterBundling(_inputDir: string, outputDir: string): string[] {
-            const modelsDir = path.resolve(__dirname, '../../../lambda/paddle-ocr/models');
-            return [
-              `cp -r ${modelsDir} ${outputDir}/models`,
-            ];
+            const modelsDir = path.resolve(
+              __dirname,
+              '../../../lambda/paddle-ocr/models',
+            );
+            return [`cp -r ${modelsDir} ${outputDir}/models`];
           },
         },
       },
