@@ -3,6 +3,7 @@ export interface SearchInput {
   query: string;
   document_id?: string;
   limit?: number;
+  language?: string;
 }
 
 export interface HybridResult {

@@ -5,18 +5,19 @@ import type { ForceGraphMethods } from 'react-force-graph-2d';
 import { forceX, forceY } from 'd3-force';
 import type { GraphData } from './useGraphData';
 import {
-  getEntityColor,
   SEGMENT_COLOR,
-  ANALYSIS_COLOR,
+  ANALYSIS_BASE_COLOR,
+  ANALYSIS_EXTRA_COLOR,
   DOCUMENT_COLOR,
   LINK_TYPE_COLORS,
 } from './constants';
+
+const ENTITY_COLOR = '#10b981';
 
 interface ForceNode {
   id: string;
   label: string;
   nodeType: string;
-  entityType?: string;
   description?: string;
   matched?: boolean;
   color: string;
@@ -38,7 +39,6 @@ export type LinkDirection = 'both' | 'outgoing' | 'incoming';
 
 export interface ForceGraphViewProps {
   data: GraphData;
-  hiddenTypes: Set<string>;
   hiddenLinkTypes?: Set<string>;
   linkDirection?: LinkDirection;
   searchFilter?: string;
@@ -102,7 +102,6 @@ function useIsDark(): boolean {
 
 export default function ForceGraphView({
   data,
-  hiddenTypes,
   hiddenLinkTypes,
   linkDirection = 'both',
   searchFilter,
@@ -171,14 +170,9 @@ export default function ForceGraphView({
   const graphData = useMemo(() => {
     const query = searchFilter?.trim().toLowerCase() ?? '';
 
-    // Step 1: determine which node IDs pass type + page range filter
+    // Step 1: determine which node IDs pass page range filter
     const typePassIds = new Set<string>();
     for (const node of data.nodes) {
-      if (node.label === 'entity' || node.label === 'cluster') {
-        const entityType =
-          (node.properties?.entity_type as string) ?? 'CONCEPT';
-        if (hiddenTypes.has(entityType)) continue;
-      }
       if (
         (node.label === 'segment' || node.label === 'analysis') &&
         focusPage != null
@@ -268,17 +262,13 @@ export default function ForceGraphView({
       const isMatched =
         (hasActiveFilter && seeds.has(id)) || node.properties?.matched === true;
       if (node.label === 'entity') {
-        const entityType =
-          (node.properties?.entity_type as string) ?? 'CONCEPT';
-        const color = getEntityColor(entityType);
         nodes.push({
           id: node.id,
           label: node.name,
           nodeType: 'entity',
-          entityType,
           description: (node.properties?.description as string) || undefined,
           matched: isMatched,
-          color,
+          color: ENTITY_COLOR,
           radius: isMatched ? 11 : 8,
         });
       } else if (node.label === 'segment') {
@@ -293,16 +283,16 @@ export default function ForceGraphView({
           radius: isMatched ? 12 : 9,
         });
       } else if (node.label === 'analysis') {
-        const qaIdx = node.properties?.qa_index as number | undefined;
-        const qaLabel = qaIdx != null ? `QA ${qaIdx + 1}` : node.name;
+        const qaLabel = node.name;
+        const isBase = node.properties?.is_base as boolean | undefined;
         nodes.push({
           id: node.id,
           label: qaLabel,
           nodeType: 'analysis',
           description: (node.properties?.question as string) || undefined,
           matched: isMatched,
-          color: ANALYSIS_COLOR,
-          radius: isMatched ? 10 : 7,
+          color: isBase ? ANALYSIS_BASE_COLOR : ANALYSIS_EXTRA_COLOR,
+          radius: isMatched ? 14 : isBase ? 11 : 10,
         });
       } else if (node.label === 'document') {
         nodes.push({
@@ -314,18 +304,14 @@ export default function ForceGraphView({
           radius: isMatched ? 13 : 10,
         });
       } else if (node.label === 'cluster') {
-        const entityType =
-          (node.properties?.entity_type as string) ?? 'CONCEPT';
-        const color = getEntityColor(entityType);
         const count = (node.properties?.count as number) ?? 0;
         nodes.push({
           id: node.id,
           label: node.name,
           nodeType: 'cluster',
-          entityType,
           description: `${count} entities`,
           matched: false,
-          color,
+          color: ENTITY_COLOR,
           radius: Math.min(8 + Math.sqrt(count) * 1.5, 25),
         });
       }
@@ -372,7 +358,6 @@ export default function ForceGraphView({
     return { nodes: connectedNodes, links };
   }, [
     data,
-    hiddenTypes,
     hiddenLinkTypes,
     searchFilter,
     linkDirection,
@@ -435,15 +420,18 @@ export default function ForceGraphView({
 
   const handleNodeClick = useCallback(
     (node: ForceNode) => {
-      if (node.nodeType === 'cluster' && onClusterClick && node.entityType) {
-        onClusterClick(node.entityType);
+      if (node.nodeType === 'cluster' && onClusterClick) {
+        const entityType =
+          (data.nodes.find((n) => n.id === node.id)?.properties
+            ?.entity_type as string) ?? 'CONCEPT';
+        onClusterClick(entityType);
         return;
       }
       if (onNodeClick && node.id) {
         onNodeClick(node.id as string, node.nodeType);
       }
     },
-    [onNodeClick, onClusterClick],
+    [onNodeClick, onClusterClick, data.nodes],
   );
 
   const handleLinkClick = useCallback(

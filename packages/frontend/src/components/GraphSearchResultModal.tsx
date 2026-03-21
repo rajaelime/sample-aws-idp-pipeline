@@ -27,7 +27,7 @@ function toGraphData(result: GraphSearchResult): GraphData {
       id: `entity-${entity.name}`,
       name: entity.name,
       label: 'entity',
-      properties: { entity_type: entity.type },
+      properties: {},
     });
   }
 
