@@ -19,6 +19,7 @@ import {
   ChevronDown,
   Search,
   Download,
+  DatabaseZap,
 } from 'lucide-react';
 import { WorkflowDetail, SegmentData, AnalysisPopup } from '../types/project';
 import ConfirmModal from './ConfirmModal';
@@ -34,7 +35,7 @@ import TagCloudView from './GraphView/TagCloudView';
 import GraphControls from './GraphView/GraphControls';
 import GraphLoading from './GraphView/GraphLoading';
 import type { GraphData, TagCloudItem } from './GraphView/useGraphData';
-import { getEntityColor, LINK_TYPE_COLORS } from './GraphView/constants';
+import { LINK_TYPE_COLORS } from './GraphView/constants';
 import {
   isTextFileType,
   isMarkdownFileType,
@@ -76,6 +77,13 @@ const parseS3Uri = (uri: string): { bucket: string; key: string } | null => {
   const key = parts.slice(1).join('/');
   return { bucket, key };
 };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const remarkPlugins: any[] = [[remarkGfm, { singleTilde: false }]];
+const passUrl = (url: string) => url;
+
+const proseClass =
+  'prose prose-slate dark:prose-invert prose-sm max-w-none prose-p:my-1.5 prose-headings:mt-3 prose-headings:mb-1 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-hr:my-3 prose-hr:border-slate-300 dark:prose-hr:border-white/[0.12] prose-table:border-collapse prose-th:border prose-th:border-slate-300 dark:prose-th:border-white/[0.12] prose-th:bg-slate-100 dark:prose-th:bg-white/[0.06] prose-th:p-2 prose-td:border prose-td:border-slate-300 dark:prose-td:border-white/[0.12] prose-td:p-2';
 
 const markdownComponents = {
   h1: ({ children }: { children?: React.ReactNode }) => (
@@ -236,9 +244,6 @@ export default function WorkflowDetailModal({
     }
   }, [totalSegs]);
   const [graphSearchTerm, setGraphSearchTerm] = useState('');
-  const [graphHiddenTypes, setGraphHiddenTypes] = useState<Set<string>>(
-    new Set(),
-  );
   const [graphHiddenLinkTypes, setGraphHiddenLinkTypes] = useState<Set<string>>(
     new Set(),
   );
@@ -255,9 +260,9 @@ export default function WorkflowDetailModal({
   const [tagCloudMinConn, setTagCloudMinConn] = useState(1);
   const [tagCloudMaxTags, setTagCloudMaxTags] = useState(100);
   const [tagCloudRotation, setTagCloudRotation] = useState(true);
+  const [graphRebuilding, setGraphRebuilding] = useState(false);
   const [graphPanelSections, setGraphPanelSections] = useState({
     filters: true,
-    groups: false,
     display: false,
   });
   const [currentSegmentIndex, setCurrentSegmentIndex] =
@@ -302,6 +307,7 @@ export default function WorkflowDetailModal({
     qaIndex: number;
     question: string;
     userInstructions: string;
+    isBase?: boolean;
   } | null>(null);
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(
     null,
@@ -347,8 +353,23 @@ export default function WorkflowDetailModal({
         signal: abortController.signal,
       })
       .then((gData) => {
+        const qCounters = new Map<number, number>();
+        for (const node of gData.nodes) {
+          if (node.label !== 'analysis') continue;
+          const qi = node.properties?.qa_index as number | undefined;
+          const q = node.properties?.question as string | undefined;
+          const seg = (node.properties?.segment_index as number) ?? -1;
+          const isBase = qi === 0 && (!q || /Analysis$/i.test(q));
+          node.properties.is_base = isBase;
+          if (isBase) {
+            node.name = 'Analysis';
+          } else {
+            const cnt = (qCounters.get(seg) ?? 0) + 1;
+            qCounters.set(seg, cnt);
+            node.name = `Extra ${cnt}`;
+          }
+        }
         setGraphData(gData);
-        if (gData.tagcloud) setTagCloudData(gData.tagcloud);
         if (gData.total_segments) setGraphTotalSegments(gData.total_segments);
       })
       .catch((err) => {
@@ -365,23 +386,40 @@ export default function WorkflowDetailModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, graphQueryTrigger]);
 
-  // Derive entity types and link types from graph data
-  const graphEntityTypes = useMemo(() => {
-    if (!graphData) return [];
-    const types = new Set<string>();
-    for (const node of graphData.nodes) {
-      if (node.label === 'entity' || node.label === 'cluster') {
-        types.add((node.properties?.entity_type as string) ?? 'CONCEPT');
-      }
-    }
-    // Also include types from tagCloudData (for clustered mode)
-    if (tagCloudData) {
-      for (const t of tagCloudData) {
-        types.add(t.type);
-      }
-    }
-    return Array.from(types).sort();
-  }, [graphData, tagCloudData]);
+  // Fetch tag cloud data once (lightweight, full document)
+  useEffect(() => {
+    if (viewMode !== 'graph') return;
+    if (tagCloudData) return;
+    const abortController = new AbortController();
+    fetchApiRef
+      .current<{ tags: TagCloudItem[] }>(
+        `projects/${projectId}/graph/documents/${workflow.document_id}/tagcloud`,
+        { signal: abortController.signal },
+      )
+      .then((res) => {
+        if (res.tags) setTagCloudData(res.tags);
+      })
+      .catch(() => undefined);
+    return () => abortController.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode]);
+
+  const handleGraphRebuild = useCallback(() => {
+    if (graphRebuilding) return;
+    setGraphRebuilding(true);
+    fetchApiRef
+      .current(
+        `projects/${projectId}/graph/documents/${workflow.document_id}/rebuild`,
+        { method: 'POST' },
+      )
+      .then(() => {
+        setTimeout(() => {
+          fetchGraph();
+          setGraphRebuilding(false);
+        }, 5000);
+      })
+      .catch(() => setGraphRebuilding(false));
+  }, [graphRebuilding, projectId, workflow.document_id, fetchGraph]);
 
   const graphLinkTypes = useMemo(() => {
     if (!graphData) return [];
@@ -402,15 +440,6 @@ export default function WorkflowDetailModal({
     }
     return max;
   }, [graphData]);
-
-  const toggleGraphEntityType = useCallback((type: string) => {
-    setGraphHiddenTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(type)) next.delete(type);
-      else next.add(type);
-      return next;
-    });
-  }, []);
 
   const toggleGraphLinkType = useCallback((type: string) => {
     setGraphHiddenLinkTypes((prev) => {
@@ -1060,57 +1089,6 @@ export default function WorkflowDetailModal({
                   ))}
               </div>
 
-              {/* Groups section - entity type toggles */}
-              <div className="border-b border-black/[0.08] dark:border-[#363b50]">
-                <button
-                  onClick={() =>
-                    setGraphPanelSections((s) => ({
-                      ...s,
-                      groups: !s.groups,
-                    }))
-                  }
-                  className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] font-semibold text-slate-700 dark:text-slate-200 hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors"
-                >
-                  {t('workflow.graph.groups')}
-                  <ChevronDown
-                    className={`w-3.5 h-3.5 text-slate-400 dark:text-slate-500 transition-transform ${graphPanelSections.groups ? '' : '-rotate-90'}`}
-                  />
-                </button>
-                {graphPanelSections.groups && (
-                  <div className="px-4 pb-3 space-y-1">
-                    {graphEntityTypes.map((type) => {
-                      const color = getEntityColor(type);
-                      const active = !graphHiddenTypes.has(type);
-                      return (
-                        <div
-                          key={type}
-                          className="flex items-center justify-between py-1"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span
-                              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: color }}
-                            />
-                            <span className="text-[12px] text-slate-600 dark:text-slate-300">
-                              {type}
-                            </span>
-                          </div>
-                          <ToggleSwitch
-                            checked={active}
-                            onChange={() => toggleGraphEntityType(type)}
-                          />
-                        </div>
-                      );
-                    })}
-                    {graphEntityTypes.length === 0 && (
-                      <p className="text-[11px] text-slate-400 dark:text-slate-600 py-1">
-                        {t('workflow.graph.noEntityTypes')}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-
               {/* Display section - link type toggles (force graph only) */}
               {graphSubMode !== 'tagcloud' && (
                 <div className="border-b border-black/[0.08] dark:border-[#363b50]">
@@ -1339,19 +1317,35 @@ export default function WorkflowDetailModal({
                         <>
                           {/* Question Navigator */}
                           <div className="flex-shrink-0 flex flex-wrap gap-2 mb-4 pb-3 border-b border-slate-200 dark:border-white/[0.08]">
-                            {analysisPopup.qaItems.map((_, idx) => (
-                              <button
-                                key={idx}
-                                onClick={() => {
-                                  document
-                                    .getElementById(`qa-item-${idx}`)
-                                    ?.scrollIntoView({ behavior: 'smooth' });
-                                }}
-                                className="w-8 h-8 bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold rounded-full flex items-center justify-center transition-colors"
-                              >
-                                Q{idx + 1}
-                              </button>
-                            ))}
+                            {(() => {
+                              let qNum = 0;
+                              return analysisPopup.qaItems.map((item, idx) => {
+                                const isBase =
+                                  idx === 0 &&
+                                  (!item.question ||
+                                    /Analysis$/i.test(item.question));
+                                if (!isBase) qNum++;
+                                return (
+                                  <button
+                                    key={idx}
+                                    onClick={() => {
+                                      document
+                                        .getElementById(`qa-item-${idx}`)
+                                        ?.scrollIntoView({
+                                          behavior: 'smooth',
+                                        });
+                                    }}
+                                    className={`w-8 h-8 text-white text-xs font-bold rounded-full flex items-center justify-center transition-colors ${
+                                      isBase
+                                        ? 'bg-emerald-500 hover:bg-emerald-600'
+                                        : 'bg-violet-500 hover:bg-violet-600'
+                                    }`}
+                                  >
+                                    {isBase ? 'A' : `E${qNum}`}
+                                  </button>
+                                );
+                              });
+                            })()}
                             {onAddQa && (
                               <button
                                 onClick={() =>
@@ -1377,90 +1371,229 @@ export default function WorkflowDetailModal({
 
                           {/* Q&A Cards */}
                           <div className="flex-1 overflow-y-auto space-y-4">
-                            {analysisPopup.qaItems.map((item, idx) => (
-                              <div
-                                key={idx}
-                                id={`qa-item-${idx}`}
-                                className="bg-white/30 dark:bg-white/[0.04] rounded-lg border border-black/[0.08] dark:border-white/[0.08] overflow-hidden scroll-mt-2"
-                              >
-                                {/* Question */}
-                                <div className="bg-blue-50 dark:bg-blue-900/20 border-b border-blue-100 dark:border-blue-800/30 px-4 py-3">
-                                  <div className="flex items-start gap-2">
-                                    <span className="flex-shrink-0 w-6 h-6 bg-blue-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
-                                      Q{idx + 1}
-                                    </span>
-                                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200 flex-1">
-                                      {item.question}
-                                    </p>
-                                    {onRegenerateQa && (
-                                      <button
-                                        onClick={() =>
-                                          setRegenerateTarget({
-                                            qaIndex: idx,
-                                            question: item.question,
-                                            userInstructions: '',
-                                          })
-                                        }
-                                        disabled={
-                                          regeneratingIndex !== null ||
-                                          deletingIndex !== null
-                                        }
-                                        className="flex-shrink-0 p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition-colors disabled:opacity-30"
-                                        title={t('workflow.regenerateQa')}
-                                      >
-                                        {regeneratingIndex === idx ? (
-                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            {(() => {
+                              let qNum = 0;
+                              const extras: {
+                                item: { question: string; answer: string };
+                                idx: number;
+                                num: number;
+                              }[] = [];
+                              let baseItem: {
+                                item: { question: string; answer: string };
+                                idx: number;
+                              } | null = null;
+                              for (
+                                let idx = 0;
+                                idx < analysisPopup.qaItems.length;
+                                idx++
+                              ) {
+                                const item = analysisPopup.qaItems[idx];
+                                const isBase =
+                                  idx === 0 &&
+                                  (!item.question ||
+                                    /Analysis$/i.test(item.question));
+                                if (isBase) {
+                                  baseItem = { item, idx };
+                                } else {
+                                  qNum++;
+                                  extras.push({ item, idx, num: qNum });
+                                }
+                              }
+                              return (
+                                <>
+                                  {/* Base Analysis */}
+                                  {baseItem && (
+                                    <div
+                                      id={`qa-item-${baseItem.idx}`}
+                                      className="rounded-lg border border-black/[0.08] dark:border-white/[0.08] overflow-hidden scroll-mt-2"
+                                    >
+                                      <div className="bg-emerald-50 dark:bg-emerald-900/20 border-b border-emerald-100 dark:border-emerald-800/30 px-4 py-3">
+                                        <div className="flex items-start gap-2">
+                                          <span className="flex-shrink-0 w-6 h-6 bg-emerald-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                                            A
+                                          </span>
+                                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex-1">
+                                            {t('workflow.analysis', 'Analysis')}
+                                          </p>
+                                          {onRegenerateQa && (
+                                            <button
+                                              onClick={() =>
+                                                setRegenerateTarget({
+                                                  qaIndex: baseItem.idx,
+                                                  question:
+                                                    baseItem.item.question,
+                                                  userInstructions: '',
+                                                  isBase: true,
+                                                })
+                                              }
+                                              disabled={
+                                                regeneratingIndex !== null ||
+                                                deletingIndex !== null
+                                              }
+                                              className="flex-shrink-0 p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition-colors disabled:opacity-30"
+                                              title={t('workflow.regenerateQa')}
+                                            >
+                                              {regeneratingIndex ===
+                                              baseItem.idx ? (
+                                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                              ) : (
+                                                <Sparkles className="h-3.5 w-3.5" />
+                                              )}
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <div className="px-4 py-3">
+                                        {regeneratingIndex === baseItem.idx ? (
+                                          <div className="flex items-center justify-center py-8 text-slate-400">
+                                            <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                                            <span className="text-sm">
+                                              {t('workflow.regeneratingQa')}
+                                            </span>
+                                          </div>
                                         ) : (
-                                          <Sparkles className="h-3.5 w-3.5" />
+                                          <div className={proseClass}>
+                                            <Markdown
+                                              remarkPlugins={remarkPlugins}
+                                              components={markdownComponents}
+                                              urlTransform={passUrl}
+                                            >
+                                              {baseItem.item.answer}
+                                            </Markdown>
+                                          </div>
                                         )}
-                                      </button>
-                                    )}
-                                    {onDeleteQa && (
-                                      <button
-                                        onClick={() =>
-                                          setDeleteConfirmIndex(idx)
-                                        }
-                                        disabled={
-                                          regeneratingIndex !== null ||
-                                          deletingIndex !== null
-                                        }
-                                        className="flex-shrink-0 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-colors disabled:opacity-30"
-                                        title={t('workflow.deleteQa')}
-                                      >
-                                        {deletingIndex === idx ? (
-                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                        ) : (
-                                          <Trash2 className="h-3.5 w-3.5" />
-                                        )}
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                                {/* Answer */}
-                                <div className="px-4 py-3">
-                                  {regeneratingIndex === idx ? (
-                                    <div className="flex items-center justify-center py-8 text-slate-400">
-                                      <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                                      <span className="text-sm">
-                                        {t('workflow.regeneratingQa')}
-                                      </span>
-                                    </div>
-                                  ) : (
-                                    <div className="prose prose-slate dark:prose-invert prose-sm max-w-none prose-p:my-1.5 prose-headings:mt-3 prose-headings:mb-1 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-hr:my-3 prose-hr:border-slate-300 dark:prose-hr:border-white/[0.12] prose-table:border-collapse prose-th:border prose-th:border-slate-300 dark:prose-th:border-white/[0.12] prose-th:bg-slate-100 dark:prose-th:bg-white/[0.06] prose-th:p-2 prose-td:border prose-td:border-slate-300 dark:prose-td:border-white/[0.12] prose-td:p-2">
-                                      <Markdown
-                                        remarkPlugins={[
-                                          [remarkGfm, { singleTilde: false }],
-                                        ]}
-                                        components={markdownComponents}
-                                        urlTransform={(url) => url}
-                                      >
-                                        {item.answer}
-                                      </Markdown>
+                                      </div>
                                     </div>
                                   )}
-                                </div>
-                              </div>
-                            ))}
+
+                                  {/* Extra Analyses */}
+                                  {(extras.length > 0 || onAddQa) && (
+                                    <div className="ml-4 border-l-2 border-violet-200 dark:border-violet-800/40 pl-3 space-y-3">
+                                      <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                                        {t(
+                                          'workflow.extraAnalysis',
+                                          'Extra Analysis',
+                                        )}
+                                      </p>
+                                      {extras.map(({ item, idx, num }) => (
+                                        <div
+                                          key={idx}
+                                          id={`qa-item-${idx}`}
+                                          className="bg-white/20 dark:bg-white/[0.02] rounded-md border border-black/[0.06] dark:border-white/[0.06] overflow-hidden scroll-mt-2"
+                                        >
+                                          <div className="bg-violet-50 dark:bg-violet-900/20 border-b border-violet-100 dark:border-violet-800/30 px-3 py-2">
+                                            <div className="flex items-start gap-2">
+                                              <span className="flex-shrink-0 w-5 h-5 bg-violet-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                                                {num}
+                                              </span>
+                                              <p className="text-xs font-medium text-slate-700 dark:text-slate-300 flex-1">
+                                                {item.question}
+                                              </p>
+                                              {onRegenerateQa && (
+                                                <button
+                                                  onClick={() =>
+                                                    setRegenerateTarget({
+                                                      qaIndex: idx,
+                                                      question: item.question,
+                                                      userInstructions: '',
+                                                    })
+                                                  }
+                                                  disabled={
+                                                    regeneratingIndex !==
+                                                      null ||
+                                                    deletingIndex !== null
+                                                  }
+                                                  className="flex-shrink-0 p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition-colors disabled:opacity-30"
+                                                  title={t(
+                                                    'workflow.regenerateQa',
+                                                  )}
+                                                >
+                                                  {regeneratingIndex === idx ? (
+                                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                                  ) : (
+                                                    <Sparkles className="h-3 w-3" />
+                                                  )}
+                                                </button>
+                                              )}
+                                              {onDeleteQa && (
+                                                <button
+                                                  onClick={() =>
+                                                    setDeleteConfirmIndex(idx)
+                                                  }
+                                                  disabled={
+                                                    regeneratingIndex !==
+                                                      null ||
+                                                    deletingIndex !== null
+                                                  }
+                                                  className="flex-shrink-0 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-colors disabled:opacity-30"
+                                                  title={t('workflow.deleteQa')}
+                                                >
+                                                  {deletingIndex === idx ? (
+                                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                                  ) : (
+                                                    <Trash2 className="h-3 w-3" />
+                                                  )}
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <div className="px-3 py-2">
+                                            {regeneratingIndex === idx ? (
+                                              <div className="flex items-center justify-center py-6 text-slate-400">
+                                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                                <span className="text-xs">
+                                                  {t('workflow.regeneratingQa')}
+                                                </span>
+                                              </div>
+                                            ) : (
+                                              <div
+                                                className={`${proseClass} prose-xs`}
+                                              >
+                                                <Markdown
+                                                  remarkPlugins={remarkPlugins}
+                                                  components={
+                                                    markdownComponents
+                                                  }
+                                                  urlTransform={passUrl}
+                                                >
+                                                  {item.answer}
+                                                </Markdown>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ))}
+                                      {onAddQa && (
+                                        <button
+                                          onClick={() =>
+                                            setAddQaTarget({
+                                              question: '',
+                                              userInstructions: '',
+                                            })
+                                          }
+                                          disabled={
+                                            addingQa ||
+                                            regeneratingIndex !== null
+                                          }
+                                          className="w-full py-2 border-2 border-dashed border-slate-300/50 dark:border-white/10 hover:border-violet-400 hover:bg-violet-50/50 dark:hover:bg-violet-900/20 text-slate-400 hover:text-violet-500 text-xs font-medium rounded-md flex items-center justify-center gap-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                          title={t('workflow.addQa')}
+                                        >
+                                          {addingQa ? (
+                                            <Loader2 className="h-3 w-3 animate-spin" />
+                                          ) : (
+                                            <Plus className="h-3 w-3" />
+                                          )}
+                                          {t(
+                                            'workflow.addExtraAnalysis',
+                                            'Add',
+                                          )}
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
                         </>
                       )
@@ -1517,11 +1650,9 @@ export default function WorkflowDetailModal({
                         )}
                         <div className="prose prose-slate dark:prose-invert prose-sm max-w-none prose-p:my-1.5 prose-headings:mt-3 prose-headings:mb-1 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-hr:my-3 prose-hr:border-slate-300 dark:prose-hr:border-white/[0.12] prose-table:border-collapse prose-th:border prose-th:border-slate-300 dark:prose-th:border-white/[0.12] prose-th:bg-slate-100 dark:prose-th:bg-white/[0.06] prose-th:p-2 prose-td:border prose-td:border-slate-300 dark:prose-td:border-white/[0.12] prose-td:p-2">
                           <Markdown
-                            remarkPlugins={[
-                              [remarkGfm, { singleTilde: false }],
-                            ]}
+                            remarkPlugins={remarkPlugins}
                             components={markdownComponents}
-                            urlTransform={(url) => url}
+                            urlTransform={passUrl}
                           >
                             {analysisPopup.content}
                           </Markdown>
@@ -1533,9 +1664,7 @@ export default function WorkflowDetailModal({
                         <div className="overflow-x-auto">
                           <div className="prose prose-slate dark:prose-invert prose-sm max-w-none prose-table:border-collapse prose-table:w-max prose-th:border prose-th:border-slate-300 dark:prose-th:border-white/[0.12] prose-th:bg-slate-100 dark:prose-th:bg-white/[0.06] prose-th:p-2 prose-th:whitespace-nowrap prose-td:border prose-td:border-slate-300 dark:prose-td:border-white/[0.12] prose-td:p-2 prose-td:whitespace-nowrap">
                             <Markdown
-                              remarkPlugins={[
-                                [remarkGfm, { singleTilde: false }],
-                              ]}
+                              remarkPlugins={remarkPlugins}
                               components={markdownComponents}
                             >
                               {sanitizeMarkdownTable(analysisPopup.content)}
@@ -1572,9 +1701,9 @@ export default function WorkflowDetailModal({
                     ) : (
                       <div className="prose prose-slate dark:prose-invert prose-sm max-w-none prose-p:my-1.5 prose-headings:mt-3 prose-headings:mb-1 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-hr:my-3 prose-hr:border-slate-300 dark:prose-hr:border-white/[0.12] prose-table:border-collapse prose-th:border prose-th:border-slate-300 dark:prose-th:border-white/[0.12] prose-th:bg-slate-100 dark:prose-th:bg-white/[0.06] prose-th:p-2 prose-td:border prose-td:border-slate-300 dark:prose-td:border-white/[0.12] prose-td:p-2">
                         <Markdown
-                          remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
+                          remarkPlugins={remarkPlugins}
                           components={markdownComponents}
-                          urlTransform={(url) => url}
+                          urlTransform={passUrl}
                         >
                           {analysisPopup.content}
                         </Markdown>
@@ -2027,15 +2156,26 @@ export default function WorkflowDetailModal({
                   loading={graphLoading}
                 />
               )}
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 relative">
+                {/* Rebuild graph (hidden feature) */}
+                <button
+                  onClick={handleGraphRebuild}
+                  disabled={graphRebuilding}
+                  title={t('workflow.graph.rebuild', 'Rebuild Graph from S3')}
+                  className="absolute bottom-2 right-2 z-10 p-1 rounded text-slate-400/40 dark:text-slate-600/50 hover:text-slate-500 dark:hover:text-slate-400 hover:bg-white/60 dark:hover:bg-slate-800/40 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {graphRebuilding ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <DatabaseZap className="w-3 h-3" />
+                  )}
+                </button>
                 {graphLoading ? (
                   <GraphLoading />
                 ) : graphData && graphData.nodes.length > 0 ? (
                   graphSubMode === 'tagcloud' ? (
                     <TagCloudView
-                      data={graphData}
                       tagCloudData={tagCloudData ?? undefined}
-                      hiddenTypes={graphHiddenTypes}
                       minConnections={tagCloudMinConn}
                       maxTags={tagCloudMaxTags}
                       rotation={tagCloudRotation}
@@ -2049,7 +2189,6 @@ export default function WorkflowDetailModal({
                   ) : (
                     <GraphView
                       data={graphData}
-                      hiddenTypes={graphHiddenTypes}
                       hiddenLinkTypes={graphHiddenLinkTypes}
                       searchFilter={graphSearchFilter}
                       depth={graphDepth}
@@ -2095,6 +2234,18 @@ export default function WorkflowDetailModal({
                         }
                       }}
                       onNodeClick={(nodeId, nodeType) => {
+                        if (nodeType === 'entity') {
+                          const node = graphData.nodes.find(
+                            (n) => n.id === nodeId,
+                          );
+                          if (node) {
+                            setGraphMode('search');
+                            setGraphSearchTerm(node.name);
+                            setGraphSubMode('force');
+                            fetchGraph();
+                          }
+                          return;
+                        }
                         if (nodeType === 'segment' || nodeType === 'analysis') {
                           const node = graphData.nodes.find(
                             (n) => n.id === nodeId,
@@ -2258,9 +2409,7 @@ export default function WorkflowDetailModal({
                             <div className="overflow-x-auto">
                               <div className="prose prose-slate dark:prose-invert prose-sm max-w-none prose-table:border-collapse prose-table:w-max prose-th:border prose-th:border-slate-300 dark:prose-th:border-white/[0.12] prose-th:bg-slate-100 dark:prose-th:bg-white/[0.06] prose-th:p-2 prose-th:whitespace-nowrap prose-td:border prose-td:border-slate-300 dark:prose-td:border-white/[0.12] prose-td:p-2 prose-td:whitespace-nowrap">
                                 <Markdown
-                                  remarkPlugins={[
-                                    [remarkGfm, { singleTilde: false }],
-                                  ]}
+                                  remarkPlugins={remarkPlugins}
                                   components={markdownComponents}
                                 >
                                   {isSpreadsheet
@@ -2315,11 +2464,9 @@ export default function WorkflowDetailModal({
                         {webContent ? (
                           <div className="prose prose-slate dark:prose-invert prose-sm max-w-none prose-p:my-1.5 prose-headings:mt-3 prose-headings:mb-1 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-hr:my-3 prose-hr:border-slate-300 dark:prose-hr:border-white/[0.12] prose-table:border-collapse prose-th:border prose-th:border-slate-300 dark:prose-th:border-white/[0.12] prose-th:bg-slate-100 dark:prose-th:bg-white/[0.06] prose-th:p-2 prose-td:border prose-td:border-slate-300 dark:prose-td:border-white/[0.12] prose-td:p-2">
                             <Markdown
-                              remarkPlugins={[
-                                [remarkGfm, { singleTilde: false }],
-                              ]}
+                              remarkPlugins={remarkPlugins}
                               components={markdownComponents}
-                              urlTransform={(url) => url}
+                              urlTransform={passUrl}
                             >
                               {webContent}
                             </Markdown>
@@ -2436,27 +2583,36 @@ export default function WorkflowDetailModal({
           <div className="workflow-sub-modal rounded-xl w-full max-w-lg mx-4 overflow-hidden shadow-xl border border-white/60 dark:border-white/[0.12] ring-1 ring-slate-900/5 dark:ring-white/5">
             <div className="p-6 border-b border-black/[0.08] dark:border-white/[0.08]">
               <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
-                {t('workflow.regenerateQaTitle')}
+                {regenerateTarget.isBase
+                  ? t('workflow.regenerateAnalysisTitle', 'Regenerate Analysis')
+                  : t('workflow.regenerateQaTitle')}
               </h3>
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                {t('workflow.regenerateQaDescription')}
+                {regenerateTarget.isBase
+                  ? t(
+                      'workflow.regenerateAnalysisDescription',
+                      'Re-run the base analysis for this segment.',
+                    )
+                  : t('workflow.regenerateQaDescription')}
               </p>
             </div>
             <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  {t('workflow.regenerateQaQuestion')}
-                </label>
-                <textarea
-                  value={regenerateTarget.question}
-                  onChange={(e) =>
-                    setRegenerateTarget((prev) =>
-                      prev ? { ...prev, question: e.target.value } : null,
-                    )
-                  }
-                  className="w-full h-24 px-3 py-2 text-sm border border-black/10 dark:border-white/[0.12] rounded-lg bg-transparent dark:bg-white/[0.06] text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                />
-              </div>
+              {!regenerateTarget.isBase && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    {t('workflow.regenerateQaQuestion')}
+                  </label>
+                  <textarea
+                    value={regenerateTarget.question}
+                    onChange={(e) =>
+                      setRegenerateTarget((prev) =>
+                        prev ? { ...prev, question: e.target.value } : null,
+                      )
+                    }
+                    className="w-full h-24 px-3 py-2 text-sm border border-black/10 dark:border-white/[0.12] rounded-lg bg-transparent dark:bg-white/[0.06] text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  />
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                   {t('workflow.regenerateQaInstructions')}
@@ -2486,7 +2642,9 @@ export default function WorkflowDetailModal({
               </button>
               <button
                 onClick={handleRegenerateQa}
-                disabled={!regenerateTarget.question.trim()}
+                disabled={
+                  !regenerateTarget.isBase && !regenerateTarget.question.trim()
+                }
                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Sparkles className="h-4 w-4" />

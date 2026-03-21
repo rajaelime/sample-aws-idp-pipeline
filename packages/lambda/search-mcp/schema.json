@@ -20,6 +20,11 @@
         "limit": {
           "type": "integer",
           "description": "Maximum number of results to return (default: 10)"
+        },
+        "language": {
+          "type": "string",
+          "enum": ["ko", "en", "ja", "zh"],
+          "description": "Language code for keyword extraction. 'ko' for Korean, 'en' for English, 'ja' for Japanese, 'zh' for Chinese."
         }
       },
       "required": ["project_id", "query"]

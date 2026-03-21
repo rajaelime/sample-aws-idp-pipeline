@@ -1,11 +1,11 @@
-import { useMemo, useCallback, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Maximize2 } from 'lucide-react';
 import ForceGraphView2D from './ForceGraphView2D';
 import ForceGraphView3D from './ForceGraphView3D';
 import type { LinkDirection } from './ForceGraphView3D';
 import type { GraphData } from './useGraphData';
-import { getEntityColor, GRAPH_BG } from './constants';
+import { GRAPH_BG } from './constants';
 
 type ViewMode = '2d' | '3d';
 
@@ -15,8 +15,6 @@ interface GraphViewProps {
   onClusterClick?: (entityType: string) => void;
   onExpandAll?: () => void;
   expandingAll?: boolean;
-  /** When provided, entity type filter is controlled externally (no overlay). */
-  hiddenTypes?: Set<string>;
   hiddenLinkTypes?: Set<string>;
   linkDirection?: LinkDirection;
   searchFilter?: string;
@@ -31,25 +29,12 @@ interface GraphViewProps {
   }) => void;
 }
 
-function collectEntityTypes(data: GraphData): string[] {
-  const types = new Set<string>();
-  for (const node of data.nodes) {
-    if (node.label === 'entity') {
-      types.add((node.properties?.entity_type as string) ?? 'CONCEPT');
-    } else if (node.label === 'cluster') {
-      types.add((node.properties?.entity_type as string) ?? 'CONCEPT');
-    }
-  }
-  return Array.from(types).sort();
-}
-
 export default function GraphView({
   data,
   onNodeClick,
   onClusterClick,
   onExpandAll,
   expandingAll,
-  hiddenTypes: controlledHiddenTypes,
   hiddenLinkTypes,
   linkDirection,
   searchFilter,
@@ -59,29 +44,7 @@ export default function GraphView({
   onLinkClick,
 }: GraphViewProps) {
   const { t } = useTranslation();
-  const [internalHiddenTypes, setInternalHiddenTypes] = useState<Set<string>>(
-    new Set(),
-  );
   const [viewMode, setViewMode] = useState<ViewMode>('3d');
-
-  const isControlled = controlledHiddenTypes !== undefined;
-  const hiddenTypes = isControlled
-    ? controlledHiddenTypes
-    : internalHiddenTypes;
-
-  const entityTypes = useMemo(() => collectEntityTypes(data), [data]);
-
-  const toggleType = useCallback((type: string) => {
-    setInternalHiddenTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(type)) {
-        next.delete(type);
-      } else {
-        next.add(type);
-      }
-      return next;
-    });
-  }, []);
 
   if (data.nodes.length === 0) {
     return (
@@ -138,33 +101,8 @@ export default function GraphView({
           </button>
         </div>
       </div>
-      {/* Show overlay filter only when uncontrolled */}
-      {!isControlled && entityTypes.length > 0 && (
-        <div className="absolute top-2 left-2 z-10 bg-white/90 dark:bg-slate-800/80 backdrop-blur-sm rounded-lg shadow-md border border-slate-200/60 dark:border-transparent p-2 flex flex-wrap gap-1.5 max-w-[300px]">
-          {entityTypes.map((type) => {
-            const color = getEntityColor(type);
-            const active = !hiddenTypes.has(type);
-            return (
-              <button
-                key={type}
-                onClick={() => toggleType(type)}
-                className="text-[10px] font-medium px-2 py-1 rounded-full border transition-all cursor-pointer"
-                style={{
-                  borderColor: color,
-                  backgroundColor: active ? color : 'transparent',
-                  color: active ? '#fff' : color,
-                  opacity: active ? 1 : 0.5,
-                }}
-              >
-                {type}
-              </button>
-            );
-          })}
-        </div>
-      )}
       <ForceGraphView
         data={data}
-        hiddenTypes={hiddenTypes}
         hiddenLinkTypes={hiddenLinkTypes}
         linkDirection={linkDirection}
         searchFilter={searchFilter}

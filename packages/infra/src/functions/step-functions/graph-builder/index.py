@@ -132,10 +132,10 @@ def create_analysis_nodes(segments, workflow_id, project_id, document_id):
 
 
 def deduplicate_entities(all_entities):
-    """Deduplicate entities by normalized name + type."""
+    """Deduplicate entities by normalized name."""
     seen = {}
     for ent in all_entities:
-        key = f'{ent["name"].lower().strip()}:{ent["type"].lower()}'
+        key = ent["name"].lower().strip()
         if key in seen:
             existing = seen[key]
             for mention in ent.get('mentioned_in', []):

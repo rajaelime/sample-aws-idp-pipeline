@@ -110,9 +110,9 @@ def run_queries_parallel(queries: list[tuple[str, dict | None]]) -> list[list]:
     return results
 
 
-def entity_id(project_id: str, name: str, entity_type: str) -> str:
-    """Generate a deterministic entity ID from project_id + name + type."""
-    key = f'{project_id}:{name.lower().strip()}:{entity_type.lower()}'
+def entity_id(project_id: str, name: str) -> str:
+    """Generate a deterministic entity ID from project_id + name."""
+    key = f'{project_id}:{name.lower().strip()}'
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
@@ -243,9 +243,8 @@ def action_add_entities(params: dict) -> dict:
     # Batch MERGE entity nodes
     entity_items = [
         {
-            'eid': entity_id(project_id, ent['name'], ent['type']),
+            'eid': entity_id(project_id, ent['name']),
             'name': ent['name'],
-            'type': ent['type'],
         }
         for ent in entities
     ]
@@ -256,14 +255,14 @@ def action_add_entities(params: dict) -> dict:
         run_query(
             'UNWIND $items AS item '
             'MERGE (e:Entity {`~id`: item.eid}) '
-            'SET e.id = item.eid, e.project_id = $pid, e.name = item.name, e.type = item.type',
+            'SET e.id = item.eid, e.project_id = $pid, e.name = item.name',
             {'items': batch, 'pid': project_id},
         )
 
     # Batch MERGE MENTIONED_IN relationships
     mention_items = []
     for ent in entities:
-        eid = entity_id(project_id, ent['name'], ent['type'])
+        eid = entity_id(project_id, ent['name'])
         for mention in ent.get('mentioned_in', []):
             workflow_id = mention.get('workflow_id', '')
             segment_index = mention.get('segment_index', 0)
@@ -295,8 +294,8 @@ def action_add_relationships(params: dict) -> dict:
 
     items = [
         {
-            'src': entity_id(project_id, rel['source'], rel.get('source_type', 'CONCEPT')),
-            'tgt': entity_id(project_id, rel['target'], rel.get('target_type', 'CONCEPT')),
+            'src': entity_id(project_id, rel['source']),
+            'tgt': entity_id(project_id, rel['target']),
             'rel': rel.get('relationship', 'RELATED'),
             'origin': rel.get('source_origin', 'auto'),
         }
@@ -318,96 +317,8 @@ def action_add_relationships(params: dict) -> dict:
 
 
 def action_build_clusters(params: dict) -> dict:
-    """Pre-compute Cluster nodes for a document.
-
-    Called by graph-builder-finalizer after all entities/relationships are added.
-    Creates :Cluster nodes with HAS_CLUSTER from Document, aggregated MENTIONED_IN
-    edges to Analysis nodes.
-    """
-    project_id = params['project_id']
-    document_id = params['document_id']
-    p = {'did': document_id, 'pid': project_id}
-
-    # 1. Count entities to decide if clustering is needed
-    count_results = run_query(
-        'MATCH (d:Document {`~id`: $did})<-[:BELONGS_TO]-(s:Segment)'
-        '<-[:BELONGS_TO]-(a:Analysis)<-[:MENTIONED_IN]-(e:Entity) '
-        'RETURN count(DISTINCT e) AS cnt',
-        p,
-    )
-    entity_count = count_results[0]['cnt'] if count_results else 0
-    if entity_count <= CLUSTER_THRESHOLD:
-        return {'success': True, 'clustered': False, 'entity_count': entity_count}
-
-    # 2. Get entity type aggregation (counts + samples)
-    cluster_data = run_query(
-        'MATCH (d:Document {`~id`: $did})<-[:BELONGS_TO]-(s:Segment)<-[:BELONGS_TO]-(a:Analysis)'
-        '<-[:MENTIONED_IN]-(e:Entity) '
-        'WITH e.type AS etype, count(DISTINCT e) AS cnt, '
-        'collect(DISTINCT e.name)[..5] AS samples '
-        'RETURN etype, cnt, samples',
-        p,
-    )
-
-    # 3. Create Cluster nodes + HAS_CLUSTER edges
-    cluster_items = []
-    for c in cluster_data:
-        etype = c['etype']
-        cluster_id = f'cluster_{document_id}_{etype}'
-        cluster_items.append({
-            'cid': cluster_id,
-            'etype': etype,
-            'cnt': c['cnt'],
-            'samples': json.dumps(c['samples']),
-        })
-
-    batch_size = 50
-    for start in range(0, len(cluster_items), batch_size):
-        batch = cluster_items[start:start + batch_size]
-        run_query(
-            'UNWIND $items AS item '
-            'MERGE (c:Cluster {`~id`: item.cid}) '
-            'SET c.id = item.cid, c.project_id = $pid, c.document_id = $did, '
-            'c.entity_type = item.etype, c.count = item.cnt, c.samples = item.samples '
-            'WITH c '
-            'MATCH (d:Document {`~id`: $did}) '
-            'MERGE (d)-[:HAS_CLUSTER]->(c)',
-            {'items': batch, 'pid': project_id, 'did': document_id},
-        )
-
-    # 4. Get cluster -> analysis edges (aggregated per type)
-    mention_data = run_query(
-        'MATCH (d:Document {`~id`: $did})<-[:BELONGS_TO]-(s:Segment)<-[:BELONGS_TO]-(a:Analysis)'
-        '<-[r:MENTIONED_IN]-(e:Entity) '
-        'RETURN e.type AS etype, a.`~id` AS aid, count(*) AS mention_count',
-        p,
-    )
-
-    mention_items = []
-    for m in mention_data:
-        cluster_id = f'cluster_{document_id}_{m["etype"]}'
-        mention_items.append({
-            'cid': cluster_id,
-            'aid': m['aid'],
-            'cnt': m['mention_count'],
-        })
-
-    for start in range(0, len(mention_items), batch_size):
-        batch = mention_items[start:start + batch_size]
-        run_query(
-            'UNWIND $items AS item '
-            'MATCH (c:Cluster {`~id`: item.cid}), (a:Analysis {`~id`: item.aid}) '
-            'MERGE (c)-[r:MENTIONED_IN]->(a) '
-            'SET r.count = item.cnt',
-            {'items': batch},
-        )
-
-    return {
-        'success': True,
-        'clustered': True,
-        'entity_count': entity_count,
-        'cluster_count': len(cluster_items),
-    }
+    """Pre-compute Cluster nodes for a document. Disabled: entity types removed."""
+    return {'success': True, 'clustered': False, 'entity_count': 0}
 
 
 def action_link_documents(params: dict) -> dict:
@@ -532,7 +443,7 @@ def action_clear_all(params: dict) -> dict:
     deleted_nodes = 0
 
     # 1. Delete all relationships first (much faster than DETACH DELETE)
-    for rel_type in ['MENTIONED_IN', 'RELATES_TO', 'BELONGS_TO', 'NEXT', 'RELATED_TO']:
+    for rel_type in ['MENTIONED_IN', 'RELATES_TO', 'BELONGS_TO', 'NEXT', 'RELATED_TO', 'HAS_CLUSTER']:
         while True:
             result = run_query(
                 f'MATCH ()-[r:{rel_type}]->() WITH r LIMIT $batch DELETE r RETURN count(*) AS cnt',
@@ -558,7 +469,7 @@ def action_clear_all(params: dict) -> dict:
             break
 
     # 3. Delete all nodes (no relationships left, so plain DELETE)
-    for label in ['Analysis', 'Segment', 'Document', 'Entity']:
+    for label in ['Cluster', 'Analysis', 'Segment', 'Document', 'Entity']:
         while True:
             result = run_query(
                 f'MATCH (n:{label}) WITH n LIMIT $batch DELETE n RETURN count(*) AS cnt',
@@ -665,7 +576,7 @@ def action_search_graph(params: dict) -> dict:
             'UNWIND $qids AS qid '
             'MATCH (e:Entity)-[:MENTIONED_IN]->(a:Analysis {`~id`: qid}) '
             'WHERE e.project_id = $pid '
-            'RETURN DISTINCT e.id AS id, e.name AS name, e.type AS type '
+            'RETURN DISTINCT e.id AS id, e.name AS name '
             f'LIMIT {int(entity_limit)}',
             {'qids': qa_ids, 'pid': project_id},
         )
@@ -769,8 +680,7 @@ def action_get_entity_graph(params: dict) -> dict:
         'WHERE d1.`~id` < d2.`~id` '
         'RETURN d1.`~id` AS d1_id, d2.`~id` AS d2_id, '
         'count(DISTINCT e) AS shared_count, '
-        'collect(DISTINCT e.name) AS shared_names, '
-        'collect(DISTINCT e.type) AS shared_types',
+        'collect(DISTINCT e.name) AS shared_names',
         {'pid': project_id}, _retries=5,
     )
 
@@ -779,7 +689,7 @@ def action_get_entity_graph(params: dict) -> dict:
         'MATCH (d:Document {project_id: $pid})<-[:BELONGS_TO]-(:Segment)'
         '<-[:BELONGS_TO]-(:Analysis)<-[:MENTIONED_IN]-(e:Entity) '
         'WITH e, count(DISTINCT d) AS doc_count '
-        'RETURN e.`~id` AS eid, e.name AS name, e.type AS type, '
+        'RETURN e.`~id` AS eid, e.name AS name, '
         'doc_count ORDER BY doc_count DESC LIMIT $tlimit',
         {'pid': project_id, 'tlimit': tagcloud_limit}, _retries=5,
     )
@@ -792,7 +702,6 @@ def action_get_entity_graph(params: dict) -> dict:
         tagcloud.append({
             'id': r['eid'],
             'name': r['name'],
-            'type': r['type'],
             'connections': r['doc_count'],
         })
 
@@ -812,12 +721,8 @@ def action_get_entity_graph(params: dict) -> dict:
     for p in (pair_results or []):
         shared_entities = []
         names = p.get('shared_names', [])[:max_entities_per_edge]
-        types = p.get('shared_types', [])
-        for i, name in enumerate(names):
-            shared_entities.append({
-                'name': name,
-                'type': types[i] if i < len(types) else '',
-            })
+        for name in names:
+            shared_entities.append({'name': name})
 
         # Filter by search term if provided
         if search_term:
@@ -853,44 +758,13 @@ CLUSTER_THRESHOLD = 500
 LARGE_DOC_SEGMENT_THRESHOLD = 500
 
 
-def _build_tagcloud_from_entities(ent_results, mention_results):
-    """Build tagcloud data from entity and mention results."""
-    mention_counts = {}
-    for m in mention_results:
-        eid = m['source']
-        mention_counts[eid] = mention_counts.get(eid, 0) + 1
-    tags = []
-    for e in ent_results:
-        tags.append({
-            'id': e['id'],
-            'name': e['name'],
-            'type': e['type'],
-            'connections': mention_counts.get(e['id'], 0),
-        })
-    return tags
-
-
-def _build_tagcloud_from_clusters(cluster_results):
-    """Build tagcloud data from cluster summary results."""
-    tags = []
-    for c in cluster_results:
-        for name in c.get('samples', []):
-            tags.append({
-                'id': f"{c['etype']}:{name}",
-                'name': name,
-                'type': c['etype'],
-                'connections': max(1, c['cnt'] // len(c['samples'])) if c.get('samples') else 1,
-            })
-    return tags
-
-
 def _build_document_graph_full(_project_id, document_id, params_both,
                                seg_results, analysis_results, next_results):
     """Build full document graph with individual entities."""
     ent_results = run_query(
         'MATCH (d:Document {`~id`: $did})<-[:BELONGS_TO]-(s:Segment)<-[:BELONGS_TO]-(a:Analysis)'
         '<-[:MENTIONED_IN]-(e:Entity) '
-        'RETURN DISTINCT e.id AS id, e.name AS name, e.type AS type',
+        'RETURN DISTINCT e.id AS id, e.name AS name',
         params_both, _retries=5,
     )
     mention_results = run_query(
@@ -910,7 +784,7 @@ def _build_document_graph_full(_project_id, document_id, params_both,
             'id': e['id'],
             'name': e['name'],
             'label': 'entity',
-            'properties': {'entity_type': e['type']},
+            'properties': {},
         })
 
     for m in mention_results:
@@ -924,69 +798,16 @@ def _build_document_graph_full(_project_id, document_id, params_both,
             },
         })
 
-    tagcloud = _build_tagcloud_from_entities(ent_results, mention_results)
-    return nodes, edges, tagcloud
+    return nodes, edges
 
 
 def _build_document_graph_clustered(_project_id, document_id, params_both,
                                     seg_results, analysis_results, next_results):
-    """Build clustered document graph from pre-computed Cluster nodes."""
-    # Read pre-computed Cluster nodes (created by build_clusters action)
-    cluster_results = run_query(
-        'MATCH (d:Document {`~id`: $did})-[:HAS_CLUSTER]->(c:Cluster) '
-        'RETURN c.`~id` AS cid, c.entity_type AS etype, c.count AS cnt, c.samples AS samples',
-        params_both,
+    """Build clustered document graph. Clustering disabled: falls back to full graph."""
+    return _build_document_graph_full(
+        _project_id, document_id, params_both,
+        seg_results, analysis_results, next_results,
     )
-
-    # Read pre-computed Cluster -> Analysis edges
-    cluster_edge_results = run_query(
-        'MATCH (d:Document {`~id`: $did})-[:HAS_CLUSTER]->(c:Cluster)-[r:MENTIONED_IN]->(a:Analysis) '
-        'RETURN c.entity_type AS etype, a.`~id` AS analysis_id, r.count AS mention_count',
-        params_both,
-    )
-
-    nodes, edges = _build_structure_nodes_edges(
-        document_id, seg_results, analysis_results, next_results
-    )
-
-    # Add cluster nodes
-    for c in cluster_results:
-        etype = c['etype']
-        cluster_id = f'cluster_{etype}'
-        samples = c['samples']
-        if isinstance(samples, str):
-            try:
-                samples = json.loads(samples)
-            except (json.JSONDecodeError, TypeError):
-                samples = []
-        nodes.append({
-            'id': cluster_id,
-            'name': f"{etype} ({c['cnt']})",
-            'label': 'cluster',
-            'properties': {
-                'entity_type': etype,
-                'count': c['cnt'],
-                'samples': samples,
-            },
-        })
-
-    # Add cluster -> analysis edges
-    seen_cluster_edges = set()
-    for ce in cluster_edge_results:
-        cluster_id = f"cluster_{ce['etype']}"
-        analysis_id = ce['analysis_id']
-        edge_key = f'{cluster_id}:{analysis_id}'
-        if edge_key not in seen_cluster_edges:
-            seen_cluster_edges.add(edge_key)
-            edges.append({
-                'source': cluster_id,
-                'target': analysis_id,
-                'label': 'MENTIONED_IN',
-                'properties': {'count': ce['mention_count']},
-            })
-
-    tagcloud = _build_tagcloud_from_clusters(cluster_results)
-    return nodes, edges, tagcloud
 
 
 def _build_structure_nodes_edges(document_id, seg_results, analysis_results, next_results):
@@ -1015,15 +836,26 @@ def _build_structure_nodes_edges(document_id, seg_results, analysis_results, nex
             },
         })
 
+    q_counters = {}
     for a in analysis_results:
+        qa_index = a.get('qa_index', 0)
+        question = a.get('question', '')
+        is_base = qa_index == 0 and (not question or 'Analysis' in question)
+        seg_idx = a['segment_index']
+        if is_base:
+            name = 'Analysis'
+        else:
+            q_counters[seg_idx] = q_counters.get(seg_idx, 0) + 1
+            name = f"Extra {q_counters[seg_idx]}"
         nodes.append({
             'id': a['id'],
-            'name': f"QA {a.get('qa_index', 0) + 1}",
+            'name': name,
             'label': 'analysis',
             'properties': {
-                'segment_index': a['segment_index'],
-                'qa_index': a.get('qa_index', 0),
-                'question': a.get('question', ''),
+                'segment_index': seg_idx,
+                'qa_index': qa_index,
+                'question': question,
+                'is_base': is_base,
             },
         })
 
@@ -1088,7 +920,7 @@ def _build_paged_graph(document_id, params_q, seg_filter):
         'MATCH (d:Document {`~id`: $did})<-[:BELONGS_TO]-(s:Segment)<-[:BELONGS_TO]-(a:Analysis)'
         '<-[:MENTIONED_IN]-(e:Entity) '
         f'{seg_filter} '
-        'RETURN DISTINCT e.`~id` AS id, e.name AS name, e.type AS type',
+        'RETURN DISTINCT e.`~id` AS id, e.name AS name',
         params_q, _retries=5,
     )
     mention_results = run_query(
@@ -1109,7 +941,7 @@ def _build_paged_graph(document_id, params_q, seg_filter):
             'id': e['id'],
             'name': e['name'],
             'label': 'entity',
-            'properties': {'entity_type': e['type']},
+            'properties': {},
         })
     for m in mention_results:
         edges.append({
@@ -1122,8 +954,7 @@ def _build_paged_graph(document_id, params_q, seg_filter):
             },
         })
 
-    tagcloud = _build_tagcloud_from_entities(ent_results, mention_results)
-    return nodes, edges, tagcloud
+    return nodes, edges
 
 
 def _build_search_graph(document_id, project_id, search_term):
@@ -1135,7 +966,7 @@ def _build_search_graph(document_id, project_id, search_term):
         'MATCH (d:Document {`~id`: $did})<-[:BELONGS_TO]-(s:Segment)<-[:BELONGS_TO]-(a:Analysis)'
         '<-[:MENTIONED_IN]-(e:Entity) '
         'WHERE toLower(e.name) CONTAINS toLower($term) '
-        'RETURN DISTINCT e.`~id` AS id, e.name AS name, e.type AS type',
+        'RETURN DISTINCT e.`~id` AS id, e.name AS name',
         p, _retries=5,
     )
     if not matched:
@@ -1170,7 +1001,7 @@ def _build_search_graph(document_id, project_id, search_term):
     ent_results = run_query(
         'MATCH (s:Segment)<-[:BELONGS_TO]-(a:Analysis)<-[:MENTIONED_IN]-(e:Entity) '
         'WHERE s.id IN $sids '
-        'RETURN DISTINCT e.`~id` AS id, e.name AS name, e.type AS type',
+        'RETURN DISTINCT e.`~id` AS id, e.name AS name',
         {'sids': seg_ids}, _retries=5,
     )
 
@@ -1201,7 +1032,6 @@ def _build_search_graph(document_id, project_id, search_term):
             'name': e['name'],
             'label': 'entity',
             'properties': {
-                'entity_type': e['type'],
                 'matched': e['id'] in matched_ids,
             },
         })
@@ -1215,8 +1045,7 @@ def _build_search_graph(document_id, project_id, search_term):
                 'context': m.get('context', ''),
             },
         })
-    tagcloud = _build_tagcloud_from_entities(ent_results, mention_results)
-    return nodes, edges, tagcloud
+    return nodes, edges
 
 
 def action_get_document_graph(params: dict) -> dict:
@@ -1247,13 +1076,12 @@ def action_get_document_graph(params: dict) -> dict:
     # Mode: Search
     if search:
         print(f'Document graph: search mode, term="{search}"')
-        nodes, edges, tagcloud = _build_search_graph(document_id, project_id, search)
+        nodes, edges = _build_search_graph(document_id, project_id, search)
         return {
             'success': True,
             'nodes': nodes,
             'edges': edges,
             'clustered': False,
-            'tagcloud': tagcloud,
             'total_segments': total_segments,
             'mode': 'search',
         }
@@ -1265,13 +1093,12 @@ def action_get_document_graph(params: dict) -> dict:
         params_q = {'did': document_id, 'pid': project_id, 'page': page}
         seg_filter = 'WHERE s.segment_index = $page'
 
-        nodes, edges, tagcloud = _build_paged_graph(document_id, params_q, seg_filter)
+        nodes, edges = _build_paged_graph(document_id, params_q, seg_filter)
         return {
             'success': True,
             'nodes': nodes,
             'edges': edges,
             'clustered': False,
-            'tagcloud': tagcloud,
             'total_segments': total_segments,
             'mode': 'page',
             'focus_page': page,
@@ -1284,13 +1111,12 @@ def action_get_document_graph(params: dict) -> dict:
         print(f'Document graph: range mode, pages {from_page}-{to_page}')
         seg_filter = 'WHERE s.segment_index >= $fp AND s.segment_index < $tp'
         params_q = {'did': document_id, 'pid': project_id, 'fp': from_page, 'tp': to_page}
-        nodes, edges, tagcloud = _build_paged_graph(document_id, params_q, seg_filter)
+        nodes, edges = _build_paged_graph(document_id, params_q, seg_filter)
         return {
             'success': True,
             'nodes': nodes,
             'edges': edges,
             'clustered': False,
-            'tagcloud': tagcloud,
             'total_segments': total_segments,
             'mode': 'range',
             'from_page': from_page,
@@ -1328,7 +1154,7 @@ def action_get_document_graph(params: dict) -> dict:
     if has_clusters:
         clustered = True
         print('Document graph: using pre-computed clusters')
-        nodes, edges, tagcloud = _build_document_graph_clustered(
+        nodes, edges = _build_document_graph_clustered(
             project_id, document_id, params_both,
             seg_results, analysis_results, next_results,
         )
@@ -1344,12 +1170,12 @@ def action_get_document_graph(params: dict) -> dict:
         print(f'Document graph: {entity_count} entities, clustered={clustered}')
 
         if clustered:
-            nodes, edges, tagcloud = _build_document_graph_clustered(
+            nodes, edges = _build_document_graph_clustered(
                 project_id, document_id, params_both,
                 seg_results, analysis_results, next_results,
             )
         else:
-            nodes, edges, tagcloud = _build_document_graph_full(
+            nodes, edges = _build_document_graph_full(
                 project_id, document_id, params_both,
                 seg_results, analysis_results, next_results,
             )
@@ -1359,7 +1185,6 @@ def action_get_document_graph(params: dict) -> dict:
         'nodes': nodes,
         'edges': edges,
         'clustered': clustered,
-        'tagcloud': tagcloud,
         'total_segments': total_segments,
     }
 
@@ -1375,13 +1200,13 @@ def action_expand_entity_cluster(params: dict) -> dict:
     # Sequential queries: Start from Document (~id indexed) and traverse down to entities
     ent_results = run_query(
         'MATCH (d:Document {`~id`: $did})<-[:BELONGS_TO]-(s:Segment)<-[:BELONGS_TO]-(a:Analysis)'
-        '<-[:MENTIONED_IN]-(e:Entity {type: $etype}) '
-        'RETURN DISTINCT e.id AS id, e.name AS name, e.type AS type',
+        '<-[:MENTIONED_IN]-(e:Entity) '
+        'RETURN DISTINCT e.id AS id, e.name AS name',
         params_q, _retries=5,
     )
     mention_results = run_query(
         'MATCH (d:Document {`~id`: $did})<-[:BELONGS_TO]-(s:Segment)<-[:BELONGS_TO]-(a:Analysis)'
-        '<-[r:MENTIONED_IN]-(e:Entity {type: $etype}) '
+        '<-[r:MENTIONED_IN]-(e:Entity) '
         'RETURN e.id AS source, a.id AS target, '
         'r.confidence AS confidence, r.context AS context',
         params_q, _retries=5,
@@ -1393,7 +1218,7 @@ def action_expand_entity_cluster(params: dict) -> dict:
             'id': e['id'],
             'name': e['name'],
             'label': 'entity',
-            'properties': {'entity_type': e['type']},
+            'properties': {},
         })
 
     edges = []
@@ -1419,7 +1244,7 @@ def action_expand_all_clusters(params: dict) -> dict:
     ent_results = run_query(
         'MATCH (d:Document {`~id`: $did})<-[:BELONGS_TO]-(s:Segment)<-[:BELONGS_TO]-(a:Analysis)'
         '<-[:MENTIONED_IN]-(e:Entity) '
-        'RETURN DISTINCT e.id AS id, e.name AS name, e.type AS type',
+        'RETURN DISTINCT e.id AS id, e.name AS name',
         params_q, _retries=5,
     )
     mention_results = run_query(
@@ -1436,7 +1261,7 @@ def action_expand_all_clusters(params: dict) -> dict:
             'id': e['id'],
             'name': e['name'],
             'label': 'entity',
-            'properties': {'entity_type': e['type']},
+            'properties': {},
         })
 
     edges = []
@@ -1457,7 +1282,7 @@ def action_expand_all_clusters(params: dict) -> dict:
 def action_get_document_tagcloud(params: dict) -> dict:
     """Get lightweight entity tag cloud data for a document.
 
-    Returns entity name, type, and connection count without full graph structure.
+    Returns entity name and connection count without full graph structure.
     """
     project_id = params['project_id']
     document_id = params['document_id']
@@ -1465,7 +1290,7 @@ def action_get_document_tagcloud(params: dict) -> dict:
     results = run_query(
         'MATCH (d:Document {`~id`: $did})<-[:BELONGS_TO]-(s:Segment)'
         '<-[:BELONGS_TO]-(a:Analysis)<-[r:MENTIONED_IN]-(e:Entity) '
-        'RETURN e.id AS id, e.name AS name, e.type AS type, '
+        'RETURN e.id AS id, e.name AS name, '
         'count(r) AS connections',
         {'did': document_id, 'pid': project_id},
     )
@@ -1474,7 +1299,6 @@ def action_get_document_tagcloud(params: dict) -> dict:
         {
             'id': r['id'],
             'name': r['name'],
-            'type': r['type'],
             'connections': r['connections'],
         }
         for r in results

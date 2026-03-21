@@ -1,5 +1,5 @@
 import { Construct } from 'constructs';
-import { CfnOutput, RemovalPolicy } from 'aws-cdk-lib';
+import { ArnFormat, CfnOutput, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import { Platform } from 'aws-cdk-lib/aws-ecr-assets';
 import { RuntimeConfig } from '../../core/runtime-config.js';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
@@ -205,7 +205,13 @@ export class Backend extends Construct {
       }),
     );
 
-    // Grant Lambda invoke permission for QA regenerator and LanceDB service
+    // Grant Lambda invoke permission for QA regenerator, LanceDB, graph-service, graph-builder
+    const graphBuilderFunctionArn = Stack.of(this).formatArn({
+      service: 'lambda',
+      resource: 'function',
+      resourceName: 'idp-v2-graph-builder',
+      arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+    });
     taskRole.addToPrincipalPolicy(
       new PolicyStatement({
         actions: ['lambda:InvokeFunction'],
@@ -213,6 +219,7 @@ export class Backend extends Construct {
           qaRegeneratorFunctionArn,
           lancedbFunctionArn,
           graphServiceFunctionArn,
+          graphBuilderFunctionArn,
         ],
       }),
     );

@@ -1,10 +1,17 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2, Network, Cloud, ChevronDown, Search, X } from 'lucide-react';
+import {
+  Loader2,
+  Network,
+  Cloud,
+  ChevronDown,
+  Search,
+  X,
+  RefreshCw,
+} from 'lucide-react';
 import GraphView from './GraphView/GraphView';
 import TagCloudView from './GraphView/TagCloudView';
 import type { GraphData } from './GraphView/useGraphData';
-import { getEntityColor } from './GraphView/constants';
 
 function ToggleSwitch({
   checked,
@@ -50,7 +57,6 @@ function ToggleRow({
 
 interface SharedEntity {
   name: string;
-  type: string;
 }
 
 interface EdgeDetailPopover {
@@ -81,7 +87,6 @@ export default function ProjectGraphModal({
   const [totalEntities, setTotalEntities] = useState(0);
 
   const [subMode, setSubMode] = useState<'force' | 'tagcloud'>('tagcloud');
-  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
   const [searchFilter, setSearchFilter] = useState('');
   const [showEdgeLabels, setShowEdgeLabels] = useState(true);
   const [edgeDetail, setEdgeDetail] = useState<EdgeDetailPopover | null>(null);
@@ -91,9 +96,10 @@ export default function ProjectGraphModal({
   const [tagCloudMaxTags, setTagCloudMaxTags] = useState(100);
   const [tagCloudRotation, setTagCloudRotation] = useState(true);
 
+  const [rebuilding, setRebuilding] = useState(false);
+
   const [panelSections, setPanelSections] = useState({
     filters: true,
-    groups: false,
     display: false,
   });
 
@@ -119,30 +125,10 @@ export default function ProjectGraphModal({
     fetchGraph();
   }, [fetchGraph]);
 
-  const entityTypes = useMemo(() => {
-    if (!graphData) return [];
-    const types = new Set<string>();
-    for (const node of graphData.nodes) {
-      if (node.label === 'entity') {
-        types.add((node.properties?.entity_type as string) ?? 'CONCEPT');
-      }
-    }
-    return Array.from(types).sort();
-  }, [graphData]);
-
   const docCount = useMemo(() => {
     if (!graphData) return 0;
     return graphData.nodes.filter((n) => n.label === 'document').length;
   }, [graphData]);
-
-  const toggleEntityType = useCallback((type: string) => {
-    setHiddenTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(type)) next.delete(type);
-      else next.add(type);
-      return next;
-    });
-  }, []);
 
   const handleTagClick = useCallback(
     (label: string) => {
@@ -186,6 +172,19 @@ export default function ProjectGraphModal({
     [graphData],
   );
 
+  const handleRebuild = useCallback(() => {
+    if (rebuilding) return;
+    setRebuilding(true);
+    fetchApi(`projects/${projectId}/graph/rebuild`, { method: 'POST' })
+      .then(() => {
+        setTimeout(() => {
+          fetchGraph();
+          setRebuilding(false);
+        }, 3000);
+      })
+      .catch(() => setRebuilding(false));
+  }, [fetchApi, fetchGraph, projectId, rebuilding]);
+
   return (
     <div
       className="fixed inset-0 bg-black/55 dark:bg-black/65 backdrop-blur-md flex items-center justify-center z-50 p-6"
@@ -213,24 +212,38 @@ export default function ProjectGraphModal({
               </span>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 bg-transparent dark:bg-[#0d1117] hover:bg-black/[0.06] dark:hover:bg-[#1e2235] rounded-lg transition-colors border border-black/10 dark:border-[#3b4264]"
-          >
-            <svg
-              className="h-5 w-5 text-slate-600 dark:text-slate-300"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleRebuild}
+              disabled={rebuilding}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300 bg-transparent dark:bg-[#0d1117] hover:bg-black/[0.06] dark:hover:bg-[#1e2235] rounded-lg transition-colors border border-black/10 dark:border-[#3b4264] disabled:opacity-50"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${rebuilding ? 'animate-spin' : ''}`}
               />
-            </svg>
-          </button>
+              {rebuilding
+                ? t('workflow.graph.rebuilding', 'Rebuilding...')
+                : t('workflow.graph.rebuild', 'Rebuild')}
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 bg-transparent dark:bg-[#0d1117] hover:bg-black/[0.06] dark:hover:bg-[#1e2235] rounded-lg transition-colors border border-black/10 dark:border-[#3b4264]"
+            >
+              <svg
+                className="h-5 w-5 text-slate-600 dark:text-slate-300"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-1 min-h-0">
@@ -355,52 +368,6 @@ export default function ProjectGraphModal({
                   ))}
               </div>
 
-              {/* Groups (entity types) */}
-              {entityTypes.length > 0 && (
-                <div className="border-b border-black/[0.08] dark:border-[#363b50]">
-                  <button
-                    onClick={() =>
-                      setPanelSections((s) => ({ ...s, groups: !s.groups }))
-                    }
-                    className="flex items-center justify-between w-full px-4 py-2.5 text-[13px] font-semibold text-slate-700 dark:text-slate-200 hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors"
-                  >
-                    {t('workflow.graph.groups', 'Groups')}
-                    <ChevronDown
-                      className={`w-3.5 h-3.5 text-slate-400 dark:text-slate-500 transition-transform ${panelSections.groups ? '' : '-rotate-90'}`}
-                    />
-                  </button>
-                  {panelSections.groups && (
-                    <div className="px-4 pb-3 space-y-1">
-                      {entityTypes.map((type) => {
-                        const active = !hiddenTypes.has(type);
-                        return (
-                          <div
-                            key={type}
-                            className="flex items-center justify-between py-1"
-                          >
-                            <div className="flex items-center gap-2">
-                              <span
-                                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                                style={{
-                                  backgroundColor: getEntityColor(type),
-                                }}
-                              />
-                              <span className="text-[12px] text-slate-600 dark:text-slate-300">
-                                {type}
-                              </span>
-                            </div>
-                            <ToggleSwitch
-                              checked={active}
-                              onChange={() => toggleEntityType(type)}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* Display (force graph only) */}
               {subMode !== 'tagcloud' && (
                 <div className="border-b border-black/[0.08] dark:border-[#363b50]">
@@ -442,7 +409,6 @@ export default function ProjectGraphModal({
               subMode === 'tagcloud' ? (
                 <TagCloudView
                   data={graphData}
-                  hiddenTypes={hiddenTypes}
                   minConnections={tagCloudMinConn}
                   maxTags={tagCloudMaxTags}
                   rotation={tagCloudRotation}
@@ -451,10 +417,16 @@ export default function ProjectGraphModal({
               ) : (
                 <GraphView
                   data={graphData}
-                  hiddenTypes={hiddenTypes}
                   searchFilter={searchFilter}
                   showEdgeLabels={showEdgeLabels}
                   onLinkClick={handleLinkClick}
+                  onNodeClick={(nodeId, nodeType) => {
+                    if (nodeType !== 'entity') return;
+                    const node = graphData.nodes.find((n) => n.id === nodeId);
+                    if (node) {
+                      handleTagClick(node.name);
+                    }
+                  }}
                 />
               )
             ) : (
@@ -502,17 +474,8 @@ export default function ProjectGraphModal({
                           key={i}
                           className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-slate-50 dark:hover:bg-white/[0.03]"
                         >
-                          <span
-                            className="w-2 h-2 rounded-full flex-shrink-0"
-                            style={{
-                              backgroundColor: getEntityColor(entity.type),
-                            }}
-                          />
                           <span className="text-[12px] text-slate-700 dark:text-slate-300 flex-1 truncate">
                             {entity.name}
-                          </span>
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500 flex-shrink-0">
-                            {entity.type}
                           </span>
                         </div>
                       ))}

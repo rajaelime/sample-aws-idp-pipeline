@@ -1,12 +1,45 @@
 import { useRef, useMemo, useEffect, useState, useCallback } from 'react';
 import cloud from 'd3-cloud';
 import type { GraphData, TagCloudItem } from './useGraphData';
-import { getEntityColor, GRAPH_BG } from './constants';
+import { GRAPH_BG } from './constants';
+
+/**
+ * Color gradient from cool (low weight) to warm (high weight).
+ * Interpolates between stops based on a 0-1 percentile.
+ */
+const COLOR_STOPS = [
+  { pct: 0, r: 168, g: 130, b: 214 },
+  { pct: 0.14, r: 236, g: 120, b: 170 },
+  { pct: 0.28, r: 239, g: 95, b: 95 },
+  { pct: 0.42, r: 251, g: 146, b: 60 },
+  { pct: 0.57, r: 251, g: 191, b: 36 },
+  { pct: 0.71, r: 96, g: 165, b: 210 },
+  { pct: 0.85, r: 72, g: 199, b: 180 },
+  { pct: 1, r: 52, g: 211, b: 153 },
+];
+
+function weightToColor(pct: number): string {
+  const p = Math.max(0, Math.min(1, pct));
+  let lo = COLOR_STOPS[0];
+  let hi = COLOR_STOPS[COLOR_STOPS.length - 1];
+  for (let i = 0; i < COLOR_STOPS.length - 1; i++) {
+    if (p >= COLOR_STOPS[i].pct && p <= COLOR_STOPS[i + 1].pct) {
+      lo = COLOR_STOPS[i];
+      hi = COLOR_STOPS[i + 1];
+      break;
+    }
+  }
+  const range = hi.pct - lo.pct || 1;
+  const t = (p - lo.pct) / range;
+  const r = Math.round(lo.r + (hi.r - lo.r) * t);
+  const g = Math.round(lo.g + (hi.g - lo.g) * t);
+  const b = Math.round(lo.b + (hi.b - lo.b) * t);
+  return `rgb(${r},${g},${b})`;
+}
 
 interface TagItem {
   text: string;
   weight: number;
-  entityType: string;
   color: string;
 }
 
@@ -17,14 +50,12 @@ interface PlacedWord {
   y: number;
   rotate: number;
   color: string;
-  entityType: string;
   weight: number;
 }
 
 interface TagCloudViewProps {
   data?: GraphData;
   tagCloudData?: TagCloudItem[];
-  hiddenTypes: Set<string>;
   onTagClick?: (label: string) => void;
   minConnections?: number;
   maxTags?: number;
@@ -52,7 +83,6 @@ let filterIdCounter = 0;
 export default function TagCloudView({
   data,
   tagCloudData,
-  hiddenTypes,
   onTagClick,
   minConnections = 1,
   maxTags = 100,
@@ -87,74 +117,55 @@ export default function TagCloudView({
   }, []);
 
   const tags = useMemo(() => {
+    const items: TagItem[] = [];
+
     // Use tagCloudData from dedicated API if available
     if (tagCloudData && tagCloudData.length > 0) {
-      const items: TagItem[] = [];
       for (const t of tagCloudData) {
-        if (hiddenTypes.has(t.type)) continue;
         items.push({
           text: t.name,
           weight: t.connections + 1,
-          entityType: t.type,
-          color: getEntityColor(t.type),
+          color: '',
         });
       }
-      const merged = new Map<string, TagItem>();
-      for (const item of items) {
-        const existing = merged.get(item.text);
-        if (existing) {
-          existing.weight += item.weight;
-        } else {
-          merged.set(item.text, { ...item });
+    } else if (data) {
+      // Fallback: derive from full GraphData
+      const entityEdgeCount = new Map<string, number>();
+      const entityInfo = new Map<string, { label: string }>();
+
+      for (const node of data.nodes) {
+        if (node.label !== 'entity') continue;
+        entityInfo.set(node.id, { label: node.name });
+        entityEdgeCount.set(node.id, 0);
+      }
+
+      for (const edge of data.edges) {
+        if (entityEdgeCount.has(edge.source)) {
+          entityEdgeCount.set(
+            edge.source,
+            (entityEdgeCount.get(edge.source) ?? 0) + 1,
+          );
+        }
+        if (entityEdgeCount.has(edge.target)) {
+          entityEdgeCount.set(
+            edge.target,
+            (entityEdgeCount.get(edge.target) ?? 0) + 1,
+          );
         }
       }
-      return Array.from(merged.values())
-        .filter((t) => t.weight >= minConnections)
-        .sort((a, b) => b.weight - a.weight)
-        .slice(0, maxTags);
-    }
 
-    // Fallback: derive from full GraphData
-    if (!data) return [];
-
-    const entityEdgeCount = new Map<string, number>();
-    const entityInfo = new Map<string, { label: string; entityType: string }>();
-
-    for (const node of data.nodes) {
-      if (node.label !== 'entity') continue;
-      const entityType = (node.properties?.entity_type as string) ?? 'CONCEPT';
-      if (hiddenTypes.has(entityType)) continue;
-      entityInfo.set(node.id, { label: node.name, entityType });
-      entityEdgeCount.set(node.id, 0);
-    }
-
-    for (const edge of data.edges) {
-      if (entityEdgeCount.has(edge.source)) {
-        entityEdgeCount.set(
-          edge.source,
-          (entityEdgeCount.get(edge.source) ?? 0) + 1,
-        );
-      }
-      if (entityEdgeCount.has(edge.target)) {
-        entityEdgeCount.set(
-          edge.target,
-          (entityEdgeCount.get(edge.target) ?? 0) + 1,
-        );
+      for (const [id, count] of entityEdgeCount) {
+        const info = entityInfo.get(id);
+        if (!info) continue;
+        items.push({
+          text: info.label,
+          weight: count + 1,
+          color: '',
+        });
       }
     }
 
-    const items: TagItem[] = [];
-    for (const [id, count] of entityEdgeCount) {
-      const info = entityInfo.get(id);
-      if (!info) continue;
-      items.push({
-        text: info.label,
-        weight: count + 1,
-        entityType: info.entityType,
-        color: getEntityColor(info.entityType),
-      });
-    }
-
+    // Merge duplicates
     const merged = new Map<string, TagItem>();
     for (const item of items) {
       const existing = merged.get(item.text);
@@ -165,11 +176,21 @@ export default function TagCloudView({
       }
     }
 
-    return Array.from(merged.values())
+    const sorted = Array.from(merged.values())
       .filter((t) => t.weight >= minConnections)
       .sort((a, b) => b.weight - a.weight)
       .slice(0, maxTags);
-  }, [data, tagCloudData, hiddenTypes, minConnections, maxTags]);
+
+    // Assign gradient color based on percentile rank
+    const len = sorted.length;
+    for (let i = 0; i < len; i++) {
+      sorted[i].color = weightToColor(
+        len > 1 ? (len - 1 - i) / (len - 1) : 0.5,
+      );
+    }
+
+    return sorted;
+  }, [data, tagCloudData, minConnections, maxTags]);
 
   useEffect(() => {
     if (tags.length === 0 || dimensions.width === 0) {
@@ -192,7 +213,6 @@ export default function TagCloudView({
           size:
             minFont + ((t.weight - minWeight) / range) * (maxFont - minFont),
           color: t.color,
-          entityType: t.entityType,
           weight: t.weight,
         })),
       )
@@ -227,7 +247,6 @@ export default function TagCloudView({
     if (!tag || !word) return null;
     return {
       ...word,
-      entityType: tag.entityType,
       weight: tag.weight,
       color: tag.color,
     };
@@ -324,13 +343,6 @@ export default function TagCloudView({
             </span>
           </div>
           <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400">
-            <span className="flex items-center gap-1.5">
-              <span
-                className="inline-block w-2 h-2 rounded-full"
-                style={{ backgroundColor: hoveredInfo.color }}
-              />
-              {hoveredInfo.entityType}
-            </span>
             <span>
               {hoveredInfo.weight} connection
               {hoveredInfo.weight !== 1 ? 's' : ''}
