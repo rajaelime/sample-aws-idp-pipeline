@@ -139,7 +139,7 @@ def parse_content_items(content_items: list[ContentItemDict]) -> list[ContentIte
             tool_use = item["toolUse"]
             parsed.append(
                 ToolUseContent(
-                    tool_use_id=tool_use.get("toolUseId", ""),
+                    tool_use_id=str(tool_use.get("toolUseId", "")),
                     name=tool_use.get("name", ""),
                     input=tool_use.get("input"),
                 )
@@ -155,9 +155,10 @@ def parse_content_items(content_items: list[ContentItemDict]) -> list[ContentIte
                 elif "document" in sub_item and sub_item["document"]:
                     sub_contents.append(parse_document(sub_item["document"]))
             if sub_contents:
+                raw_id = tool_result.get("toolUseId")
                 parsed.append(
                     ToolResultContent(
-                        tool_use_id=tool_result.get("toolUseId"),
+                        tool_use_id=str(raw_id) if raw_id is not None else None,
                         content=sub_contents,
                     )
                 )
