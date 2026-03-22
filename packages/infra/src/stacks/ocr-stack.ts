@@ -196,28 +196,24 @@ export class OcrStack extends Stack {
     // OCR Lambda Processor (invokes Rust OCR Lambda)
     // ========================================
 
-    const ocrLambdaProcessor = new lambda.Function(
-      this,
-      'OcrLambdaProcessor',
-      {
-        functionName: 'idp-v2-ocr-lambda-processor',
-        description: 'OCR processor (invokes Rust PaddleOCR Lambda)',
-        runtime: lambda.Runtime.PYTHON_3_14,
-        handler: 'index.handler',
-        code: lambda.Code.fromAsset(
-          path.join(__dirname, '../functions/preprocessing/ocr-lambda-processor'),
-        ),
-        layers: [sharedLayer],
-        architecture: lambda.Architecture.ARM_64,
-        memorySize: 256,
-        timeout: Duration.minutes(10),
-        environment: {
-          BACKEND_TABLE_NAME: backendTableName,
-          OUTPUT_BUCKET: documentBucketName,
-          RUST_OCR_FUNCTION_NAME: paddleOcrFunction.functionName,
-        },
+    const ocrLambdaProcessor = new lambda.Function(this, 'OcrLambdaProcessor', {
+      functionName: 'idp-v2-ocr-lambda-processor',
+      description: 'OCR processor (invokes Rust PaddleOCR Lambda)',
+      runtime: lambda.Runtime.PYTHON_3_14,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(
+        path.join(__dirname, '../functions/preprocessing/ocr-lambda-processor'),
+      ),
+      layers: [sharedLayer],
+      architecture: lambda.Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.minutes(10),
+      environment: {
+        BACKEND_TABLE_NAME: backendTableName,
+        OUTPUT_BUCKET: documentBucketName,
+        RUST_OCR_FUNCTION_NAME: paddleOcrFunction.functionName,
       },
-    );
+    });
 
     // Store OCR Lambda processor function name in SSM (for WorkflowStack)
     new ssm.StringParameter(this, 'OcrLambdaProcessorFunctionNameParam', {
