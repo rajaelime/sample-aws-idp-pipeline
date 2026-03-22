@@ -221,7 +221,9 @@ export class OcrStack extends Stack {
       bundling: {
         commandHooks: {
           beforeBundling(_inputDir: string, _outputDir: string): string[] {
-            return [];
+            return [
+              'apt-get update -qq && apt-get install -y -qq cmake > /dev/null 2>&1',
+            ];
           },
           afterBundling(_inputDir: string, outputDir: string): string[] {
             const modelsDir = path.resolve(
