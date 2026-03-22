@@ -1,4 +1,4 @@
-import { Duration, Size, Stack, StackProps } from 'aws-cdk-lib';
+import { Duration, Stack, StackProps } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as sns from 'aws-cdk-lib/aws-sns';
@@ -19,7 +19,6 @@ import { SSM_KEYS } from ':idp-v2/common-constructs';
 import {
   PaddleOcrModelBuilder,
   PaddleOcrEndpoint,
-  OcrLambdaBuilder,
 } from '../constructs/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -160,55 +159,6 @@ export class OcrStack extends Stack {
     });
 
     // ========================================
-    // OCR Lambda Processor (pp-ocrv5, pp-structurev3 - CPU-only)
-    // ========================================
-
-    // OcrLambdaBuilder construct (x86 CodeBuild for PaddlePaddle)
-    const ocrLambdaBuilder = new OcrLambdaBuilder(this, 'OcrLambdaBuilder', {
-      buildContextPath: path.join(__dirname, '../functions'),
-      triggerLambdaPath: path.join(
-        __dirname,
-        '../functions/paddleocr/model-builder-trigger',
-      ),
-    });
-
-    const ocrLambdaProcessor = new lambda.DockerImageFunction(
-      this,
-      'OcrLambdaProcessor',
-      {
-        functionName: 'idp-v2-ocr-lambda-processor',
-        description: 'PaddleOCR processor (CPU)',
-        code: lambda.DockerImageCode.fromEcr(ocrLambdaBuilder.repository, {
-          tag: ocrLambdaBuilder.imageTag,
-        }),
-        architecture: lambda.Architecture.X86_64,
-        memorySize: 5120,
-        timeout: Duration.minutes(15),
-        ephemeralStorageSize: Size.gibibytes(2),
-        environment: {
-          BACKEND_TABLE_NAME: backendTableName,
-          OUTPUT_BUCKET: documentBucketName,
-          MODEL_CACHE_BUCKET: modelArtifactsBucketName,
-          MODEL_CACHE_PREFIX: 'paddleocr/models',
-        },
-      },
-    );
-    ocrLambdaProcessor.node.addDependency(ocrLambdaBuilder.buildTrigger);
-
-    // Store OCR Lambda processor function name in SSM (for WorkflowStack)
-    new ssm.StringParameter(this, 'OcrLambdaProcessorFunctionNameParam', {
-      parameterName: SSM_KEYS.OCR_LAMBDA_PROCESSOR_FUNCTION_NAME,
-      stringValue: ocrLambdaProcessor.functionName,
-    });
-
-    // Permissions: DDB read/write, S3 read/write for document + model buckets
-    backendTable.grantReadWriteData(ocrLambdaProcessor);
-    documentBucket.grantRead(ocrLambdaProcessor);
-    documentBucket.grantPut(ocrLambdaProcessor);
-    modelArtifactsBucket.grantRead(ocrLambdaProcessor);
-    modelArtifactsBucket.grantPut(ocrLambdaProcessor);
-
-    // ========================================
     // Rust PaddleOCR Lambda (MNN-based, CPU)
     // ========================================
 
@@ -219,6 +169,9 @@ export class OcrStack extends Stack {
       memorySize: 2048,
       timeout: Duration.minutes(5),
       bundling: {
+        dockerOptions: {
+          user: 'root',
+        },
         commandHooks: {
           beforeBundling(_inputDir: string, _outputDir: string): string[] {
             return [
@@ -232,10 +185,46 @@ export class OcrStack extends Stack {
       },
       environment: {
         DOCUMENT_BUCKET: documentBucketName,
+        HOME: '/tmp',
+        XDG_CACHE_HOME: '/tmp/.cache',
       },
     });
 
     documentBucket.grantRead(paddleOcrFunction);
+
+    // ========================================
+    // OCR Lambda Processor (invokes Rust OCR Lambda)
+    // ========================================
+
+    const ocrLambdaProcessor = new lambda.Function(this, 'OcrLambdaProcessor', {
+      functionName: 'idp-v2-ocr-lambda-processor',
+      description: 'OCR processor (invokes Rust PaddleOCR Lambda)',
+      runtime: lambda.Runtime.PYTHON_3_14,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(
+        path.join(__dirname, '../functions/preprocessing/ocr-lambda-processor'),
+      ),
+      layers: [sharedLayer],
+      architecture: lambda.Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.minutes(10),
+      environment: {
+        BACKEND_TABLE_NAME: backendTableName,
+        OUTPUT_BUCKET: documentBucketName,
+        RUST_OCR_FUNCTION_NAME: paddleOcrFunction.functionName,
+      },
+    });
+
+    // Store OCR Lambda processor function name in SSM (for WorkflowStack)
+    new ssm.StringParameter(this, 'OcrLambdaProcessorFunctionNameParam', {
+      parameterName: SSM_KEYS.OCR_LAMBDA_PROCESSOR_FUNCTION_NAME,
+      stringValue: ocrLambdaProcessor.functionName,
+    });
+
+    // Permissions: DDB read/write, S3 write for results, invoke Rust OCR Lambda
+    backendTable.grantReadWriteData(ocrLambdaProcessor);
+    documentBucket.grantPut(ocrLambdaProcessor);
+    paddleOcrFunction.grantInvoke(ocrLambdaProcessor);
 
     // ========================================
     // OCR Complete Handler Lambda (SNS triggered)
