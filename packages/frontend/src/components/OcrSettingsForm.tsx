@@ -315,7 +315,6 @@ export default function OcrSettingsForm({
                 </div>
               </div>
             </label>
-
           </div>
         </div>
       )}
