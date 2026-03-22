@@ -225,12 +225,8 @@ export class OcrStack extends Stack {
               'apt-get update -qq && apt-get install -y -qq cmake libclang-dev > /dev/null 2>&1',
             ];
           },
-          afterBundling(_inputDir: string, outputDir: string): string[] {
-            const modelsDir = path.resolve(
-              __dirname,
-              '../../../lambda/paddle-ocr/models',
-            );
-            return [`cp -r ${modelsDir} ${outputDir}/models`];
+          afterBundling(inputDir: string, outputDir: string): string[] {
+            return [`cp -r ${inputDir}/models ${outputDir}/models`];
           },
         },
       },
