@@ -7,12 +7,7 @@ export const OCR_MODELS = [
     hasLangOption: true,
     hasOptions: true,
   },
-  {
-    value: 'pp-structurev3',
-    hasLangOption: true,
-    hasOptions: true,
-  },
-  {
+{
     value: 'paddleocr-vl',
     hasLangOption: false,
     hasOptions: false,
