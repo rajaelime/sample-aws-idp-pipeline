@@ -7,7 +7,7 @@ export const OCR_MODELS = [
     hasLangOption: true,
     hasOptions: true,
   },
-{
+  {
     value: 'paddleocr-vl',
     hasLangOption: false,
     hasOptions: false,
