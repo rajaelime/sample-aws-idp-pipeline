@@ -222,7 +222,7 @@ export class OcrStack extends Stack {
         commandHooks: {
           beforeBundling(_inputDir: string, _outputDir: string): string[] {
             return [
-              'apt-get update -qq && apt-get install -y -qq cmake > /dev/null 2>&1',
+              'apt-get update -qq && apt-get install -y -qq cmake libclang-dev > /dev/null 2>&1',
             ];
           },
           afterBundling(_inputDir: string, outputDir: string): string[] {
