@@ -167,7 +167,7 @@ export class OcrStack extends Stack {
       manifestPath: '../lambda/paddle-ocr',
       architecture: lambda.Architecture.X86_64,
       memorySize: 2048,
-      timeout: Duration.minutes(5),
+      timeout: Duration.minutes(10),
       bundling: {
         dockerOptions: {
           user: 'root',
