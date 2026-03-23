@@ -36,7 +36,7 @@ def get_lambda_client():
     global lambda_client
     if lambda_client is None:
         from botocore.config import Config
-        config = Config(read_timeout=360, connect_timeout=10)
+        config = Config(read_timeout=660, connect_timeout=10)
         lambda_client = boto3.client('lambda', config=config)
     return lambda_client
 
