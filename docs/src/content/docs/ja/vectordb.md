@@ -1,20 +1,22 @@
 ---
 title: "Vector Database"
-description: "サーバーレスベクトルストレージと韓国語形態素ベース検索"
+description: "サーバーレスベクトルストレージと多言語ハイブリッド検索"
 ---
 
 ## 概要
 
-このプロジェクトでは、Amazon OpenSearch Serviceの代わりに[LanceDB](https://lancedb.com/)をベクトルデータベースとして使用しています。LanceDBはオープンソースのサーバーレスベクトルデータベースで、データをS3に直接保存し、専用クラスターインフラが不要です。韓国語形態素解析器[Kiwi](https://github.com/bab2min/Kiwi)と組み合わせることで、韓国語文書に対するハイブリッド検索（ベクトル＋全文検索）を実現しています。
+このプロジェクトでは、Amazon OpenSearch Serviceの代わりに[LanceDB](https://lancedb.com/)をベクトルデータベースとして使用しています。LanceDBはオープンソースのサーバーレスベクトルデータベースで、データをS3に直接保存し、専用クラスターインフラが不要です。多言語トークナイザーLambdaの[Toka](https://github.com/aws-samples/sample-aws-idp-pipeline/tree/main/packages/lambda/toka)と組み合わせることで、すべてのサポート言語に対するハイブリッド検索（ベクトル＋全文検索）を実現しています。
 
 ### 多言語検索サポート
 
-| 言語 | セマンティック検索（ベクトル） | 全文検索（FTS） | 検索モード |
+| 言語 | セマンティック検索（ベクトル） | 全文検索（FTS） | トークナイザー |
 |------|:---:|:---:|------------|
-| **韓国語** | O | O | ハイブリッド（ベクトル + FTS） |
-| **英語およびその他の言語** | O | X | セマンティック検索のみ |
+| **韓国語** | O | O | Lindera (KoDic) |
+| **日本語** | O | O | Lindera (IPADIC) |
+| **中国語** | O | O | Lindera (Jieba) |
+| **英語およびその他の言語** | O | O | ICU Word Segmenter |
 
-Kiwiは韓国語専用の形態素解析器であるため、FTSキーワードが正確に抽出されるのは韓国語文書のみです。英語などの他言語の文書は、Bedrock Novaベクトル埋め込みによるセマンティック検索で検索されます。ベクトル検索は言語に関係なく意味ベースで動作するため、すべての言語の文書を検索できます。
+Tokaは、CJK言語（韓国語、日本語、中国語）に対する言語別形態素解析と、その他の言語に対するICUベースの単語分割を提供する多言語トークナイザーです。これにより、すべての言語の文書でハイブリッド検索（ベクトル + FTS）が可能になります。
 
 ### PoCにLanceDBを選んだ理由
 
@@ -39,14 +41,14 @@ OpenSearchはダッシュボード、k-NNプラグイン、きめ細かなアク
 ```
 書き込みパス:
   Analysis Finalizer → SQS (Write Queue) → LanceDB Writer Lambda
-    → LanceDB Service Lambda (Container)
-        ├─ Kiwi: キーワード抽出
+    → LanceDB Service Lambda (Rust)
+        ├─ Toka Lambda: キーワード抽出（多言語）
         ├─ Bedrock Nova: ベクトル埋め込み (1024d)
         └─ LanceDB: S3 Express One Zoneに保存
 
 読み取りパス:
   MCP Search Tool Lambda
-    → LanceDB Service Lambda (Container): ハイブリッド検索 (ベクトル + FTS)
+    → LanceDB Service Lambda (Rust): ハイブリッド検索（ベクトル + FTS）
     → Bedrock Claude Haiku: 検索結果の要約
 
 削除パス:
@@ -75,38 +77,58 @@ DynamoDB (Lock Table)
 
 ## コンポーネント
 
-### 1. LanceDB Service Lambda（Container Image）
+### 1. LanceDB Service Lambda（Rust）
 
-ベクトルDBのコアサービスです。`lancedb`と`kiwipiepy`の合計サイズがLambdaデプロイ制限（250MB）を超えるため、Dockerコンテナイメージを使用しています。
+ベクトルDBのコアサービスで、Rustとcargo-lambdaでビルドし、高いパフォーマンスと高速なコールドスタートを提供します。
 
 | 項目 | 値 |
 |------|-----|
-| 関数名 | `idp-v2-lancedb-service` |
-| ランタイム | Python 3.12（Container Image） |
-| メモリ | 2048 MB |
+| 関数名 | `idp-v2-lance-service` |
+| ランタイム | Rust (provided.al2023, ARM64) |
+| メモリ | 1024 MB |
 | タイムアウト | 5分 |
-| ベースイメージ | `public.ecr.aws/lambda/python:3.12` |
-| 依存関係 | `lancedb>=0.26.0`, `kiwipiepy>=0.22.0`, `boto3` |
+| スタック | LanceServiceStack |
+| ビルド | cargo-lambda（Dockerベース） |
 
 **サポートアクション:**
 
 | アクション | 説明 |
 |-----------|------|
-| `add_record` | QAレコード追加（キーワード抽出 + 埋め込み + 保存） |
+| `add_record` | QAレコード追加（Tokaでキーワード抽出 + Bedrockで埋め込み + 保存） |
 | `delete_record` | QA IDまたはセグメントIDで削除 |
 | `get_segments` | ワークフローの全セグメント取得 |
 | `get_by_segment_ids` | セグメントIDリストで本文取得（Graph MCPで使用） |
-| `hybrid_search` | ハイブリッド検索（ベクトル + FTS、`query_type='hybrid'`） |
+| `hybrid_search` | ハイブリッド検索（ベクトル + FTS） |
 | `list_tables` | 全プロジェクトテーブル一覧 |
 | `count` | プロジェクトテーブルのレコード数取得 |
 | `delete_by_workflow` | ワークフローIDで全レコード削除 |
 | `drop_table` | プロジェクトテーブル全体を削除 |
 
-**Container Lambdaを使用する理由:**
+### 2. Toka Lambda（多言語トークナイザー）
 
-Kiwiの韓国語言語モデルファイルとLanceDBのネイティブバイナリを合わせると数百MBに達し、Lambdaの250MB zip制限を超えます。Dockerコンテナイメージ（最大10GB）を使用することでこの制約を解決しています。
+Rustベースの多言語トークナイザーLambdaで、言語別形態素解析によりテキストからキーワードを抽出します。
 
-### 2. LanceDB Writer Lambda
+| 項目 | 値 |
+|------|-----|
+| 関数名 | `idp-v2-toka` |
+| ランタイム | Rust (provided.al2023, ARM64) |
+| メモリ | 1024 MB |
+| スタック | LanceServiceStack |
+
+**言語サポート:**
+
+| 言語 | ライブラリ | 辞書 | 方式 |
+|------|----------|------|------|
+| 韓国語 | Lindera | KoDic | 形態素解析、ストップタグフィルタリング（助詞、語尾） |
+| 日本語 | Lindera | IPADIC | 形態素解析、ストップタグフィルタリング（助詞、助動詞） |
+| 中国語 | Lindera | Jieba | 単語分割、ストップワードフィルタリング（65個の一般単語） |
+| その他 | ICU | - | Unicode単語境界分割 |
+
+**インターフェース:**
+- 入力: `{ text: string, lang: string }`
+- 出力: `{ tokens: string[] }`
+
+### 3. LanceDB Writer Lambda
 
 分析パイプラインからの書き込みリクエストを受信し、LanceDB Serviceに委任するSQSコンシューマーです。
 
@@ -121,7 +143,7 @@ Kiwiの韓国語言語モデルファイルとLanceDBのネイティブバイナ
 
 同時実行数を1に設定し、LanceDBテーブルへの同時書き込み競合を防止しています。
 
-### 3. MCP Search Tool
+### 4. MCP Search Tool
 
 AIチャット中にエージェントが文書を検索する際、LanceDB Service Lambdaを直接呼び出すMCPツールです。
 
@@ -144,88 +166,122 @@ AIチャット中にエージェントが文書を検索する際、LanceDB Serv
 
 各QA分析結果がレコードとして保存されます。1つのセグメント（ページ）に複数のQAが存在できるため、**QA単位でレコード**が作成されます:
 
-```python
-class DocumentRecord(LanceModel):
-    workflow_id: str            # ワークフローID
-    document_id: str            # 文書ID
-    segment_id: str             # "{workflow_id}_{segment_index:04d}"
-    qa_id: str                  # "{workflow_id}_{segment_index:04d}_{qa_index:02d}"
-    segment_index: int          # セグメントページ/チャプター番号
-    qa_index: int               # QA番号（0から）
-    question: str               # AIが生成した質問
-    content: str                # content_combined（埋め込みソースフィールド）
-    vector: Vector(1024)        # Bedrock Nova埋め込み（ベクトルフィールド）
-    keywords: str               # Kiwi抽出キーワード（FTSインデックス）
-    file_uri: str               # 元ファイルS3 URI
-    file_type: str              # MIMEタイプ
-    image_uri: Optional[str]    # セグメント画像S3 URI
-    created_at: datetime        # タイムスタンプ
+```rust
+DocumentRecord {
+    workflow_id: String,            // ワークフローID
+    document_id: String,            // 文書ID
+    segment_id: String,             // "{workflow_id}_{segment_index:04d}"
+    qa_id: String,                  // "{workflow_id}_{segment_index:04d}_{qa_index:02d}"
+    segment_index: i64,             // セグメントページ/チャプター番号
+    qa_index: i64,                  // QA番号（0から）
+    question: String,               // AIが生成した質問
+    content: String,                // content_combined（埋め込みソース）
+    vector: FixedSizeList(f32, 1024), // Bedrock Nova埋め込み
+    keywords: String,               // Toka抽出キーワード（FTSインデックス）
+    file_uri: String,               // 元ファイルS3 URI
+    file_type: String,              // MIMEタイプ
+    image_uri: Option<String>,      // セグメント画像S3 URI
+    created_at: Timestamp,          // タイムスタンプ
+}
 ```
 
 - **プロジェクトごとに1テーブル**: テーブル名 = `project_id`
 - **QA単位保存**: セグメントごとに複数のQAが独立レコードとして保存（`qa_id`で一意識別）
 - **`content`**: 全前処理結果を統合したテキスト（OCR + BDA + PDFテキスト + AI分析）
-- **`vector`**: LanceDB埋め込み関数で自動生成（Bedrock Nova、1024次元）
-- **`keywords`**: Kiwiで抽出した韓国語形態素（FTSインデックス）。韓国語以外の言語はスペースベースのトークン化
+- **`vector`**: Bedrock Novaで生成（amazon.nova-2-multimodal-embeddings-v1:0、1024次元）
+- **`keywords`**: Tokaで抽出したキーワード（FTSインデックス）、言語別トークン化
 
 ---
 
-## Kiwi: 韓国語形態素解析器
+## Toka: 多言語トークナイザー
 
-[Kiwi (Korean Intelligent Word Identifier)](https://github.com/bab2min/Kiwi)はC++で書かれたオープンソースの韓国語形態素解析器で、Pythonバインディング（`kiwipiepy`）を提供しています。
+[Toka](https://github.com/aws-samples/sample-aws-idp-pipeline/tree/main/packages/lambda/toka)は、従来の韓国語専用Kiwiトークナイザーを置き換えるRustベースの多言語トークナイザーLambdaです。
 
-### Kiwiを使用する理由
+### Tokaを使用する理由
 
-LanceDBの内蔵FTSトークナイザーは韓国語をサポートしていません。韓国語は膠着語であり、スペースだけでは単語を分離できません。例:
+LanceDBの内蔵FTSトークナイザーはCJK言語をうまく処理できません。CJK言語では正確なキーワード抽出のために言語別の形態素解析が必要です:
 
 ```
-入力:  "인공지능 기반 문서 분석 시스템을 구축했습니다"
-Kiwi:  "인공 지능 기반 문서 분석 시스템 구축"（名詞のみ抽出）
+韓国語:   "인공지능 기반 문서 분석 시스템을 구축했습니다"
+  Toka:   ["인공", "지능", "기반", "문서", "분석", "시스템", "구축"]
+
+日本語:   "東京は日本の首都です"
+  Toka:   ["東京", "日本", "首都"]
+
+中国語:   "我喜欢学习中文"
+  Toka:   ["喜欢", "学习", "中文"]
+
+英語:     "Document analysis system"
+  Toka:   ["Document", "analysis", "system"]
 ```
 
-形態素分析なしでは、「시스템」で検索しても「시스템을」や「시스템에서」を含む文書を見つけることができません。
+### CJKトークン化（Lindera）
 
-### 抽出ルール
+韓国語、日本語、中国語の場合、Tokaは**Lindera**を使用して言語別辞書とストップタグ/ストップワードフィルターを適用します:
 
-| 品詞タグ | 説明 | 例 |
-|---------|------|-----|
-| NNG | 一般名詞 | 문서, 분석, 시스템 |
-| NNP | 固有名詞 | AWS, Bedrock |
-| NR | 数詞 | 하나, 둘 |
-| NP | 代名詞 | 이것, 그것 |
-| SL | 外国語 | Lambda, Python |
-| SN | 数字 | 1024, 3.5 |
-| SH | 漢字 | |
-| XSN | 接尾辞 | 前のトークンに結合（例: 생성+형 → 생성형） |
+**韓国語（KoDic）:** 助詞（JK*）、語尾（EP/EF/EC）、冠形詞（MM）などをフィルタリングし、内容語のみを保持します。
 
-**フィルター:**
-- 1文字韓国語ストップワード: 것, 수, 등, 때, 곳
-- 1文字の外国語、数字、漢字は保持
+**日本語（IPADIC）:** 助詞、助動詞、記号、フィラーをフィルタリングし、内容語のみを保持します。
+
+**中国語（Jieba）:** 単語分割後、65個の一般的なストップワードをフィルタリングします。
+
+### その他の言語（ICU）
+
+CJK以外のすべての言語について、Tokaは**ICU Word Segmenter**を使用してUnicode標準の単語境界検出を行います。英数字を含まないセグメントはフィルタリングされます。
 
 ---
 
 ## ハイブリッド検索フロー
 
-すべての検索はLanceDB Service Lambdaで処理されます。LanceDBのネイティブ`query_type='hybrid'`を使用してベクトル検索と全文検索を統合します。
+すべての検索はLanceDB Service Lambdaで処理されます。言語認識キーワード抽出により、ベクトル検索と全文検索を組み合わせます。
 
 ```
-検索クエリ: "문서 분석 결과 조회"
+検索クエリ: "文書分析結果の照会"
   │
-  ├─ [1] Kiwiキーワード抽出（LanceDB Service Lambda）
-  │     → "문서 분석 결과 조회"
+  ├─ [1] Tokaキーワード抽出（Toka Lambda経由）
+  │     → "文書 分析 結果 照会"
   │
-  ├─ [2] LanceDBネイティブハイブリッド検索
-  │     → table.search(query=keywords, query_type='hybrid')
-  │     → ベクトル検索（Nova埋め込み）+ FTS自動マージ
-  │     → Top-K結果（_relevance_score）
+  ├─ [2] Bedrock Nova埋め込み生成
+  │     → 1024次元ベクトル
   │
-  └─ [3] 結果の要約（MCP Search Tool Lambda）
+  ├─ [3] LanceDBハイブリッド検索
+  │     → FTS: keywordsカラムでキーワードマッチング
+  │     → Vector: vectorカラムで最近傍検索
+  │     → 関連度スコアと共に結果を結合
+  │
+  └─ [4] 結果の要約（MCP Search Tool Lambda）
         → Bedrock Claude Haikuで検索結果に基づく回答を生成
 ```
 
 ---
 
 ## インフラ（CDK）
+
+### LanceServiceStack
+
+```typescript
+// Toka Lambda（多言語トークナイザー）
+const tokaFunction = new RustFunction(this, 'TokaFunction', {
+  functionName: 'idp-v2-toka',
+  manifestPath: '../lambda/toka',
+  architecture: Architecture.ARM_64,
+  memorySize: 1024,
+});
+
+// LanceDB Service Lambda (Rust)
+const lanceDbServiceFunction = new RustFunction(this, 'LanceDbServiceFunction', {
+  functionName: 'idp-v2-lance-service',
+  manifestPath: '../lambda/lancedb-service',
+  architecture: Architecture.ARM_64,
+  memorySize: 1024,
+  timeout: Duration.minutes(5),
+  environment: {
+    TOKA_FUNCTION_NAME: tokaFunction.functionName,
+    LANCEDB_EXPRESS_BUCKET_NAME: '...',
+    LANCEDB_LOCK_TABLE_NAME: '...',
+  },
+});
+```
 
 ### S3 Express One Zone
 
@@ -260,7 +316,8 @@ const lockTable = new Table(this, 'LanceDbLockTable', {
 | `/idp-v2/lancedb/lock/table-name` | DynamoDBロックテーブル名 |
 | `/idp-v2/lancedb/express/bucket-name` | S3 Expressバケット名 |
 | `/idp-v2/lancedb/express/az-id` | S3 Express可用性ゾーンID |
-| `/idp-v2/lancedb/function-arn` | LanceDB Service Lambda関数ARN |
+| `/idp-v2/lance-service/function-arn` | LanceDB Service Lambda関数ARN |
+| `/idp-v2/toka/function-name` | TokaトークナイザーLambda関数名 |
 
 ---
 
@@ -283,8 +340,9 @@ graph TB
         Backend["Backend API<br/>（プロジェクト削除）"]
     end
 
-    subgraph Core["Core Service"]
-        Service["LanceDB Service<br/>(Container Lambda)"]
+    subgraph Core["Core Service (LanceServiceStack)"]
+        Service["LanceDB Service<br/>(Rust Lambda)"]
+        Toka["Toka<br/>(Tokenizer Lambda)"]
     end
 
     subgraph Storage["Storage Layer"]
@@ -297,6 +355,7 @@ graph TB
     MCP -->|invoke<br/>hybrid_search| Service
     Backend -->|invoke<br/>drop_table| Service
 
+    Service -->|invoke<br/>キーワード抽出| Toka
     Service --> S3 & DDB
 
     style Storage fill:#fff3e0,stroke:#ff9900
@@ -308,7 +367,8 @@ graph TB
 
 | コンポーネント | スタック | アクセスタイプ | 説明 |
 |--------------|--------|-------------|------|
-| **LanceDB Service** | WorkflowStack | 読み書き | コアDBサービス（Container Lambda） |
+| **LanceDB Service** | LanceServiceStack | 読み書き | コアDBサービス（Rust Lambda） |
+| **Toka** | LanceServiceStack | 読み取り | 多言語トークナイザー（Rust Lambda） |
 | **LanceDB Writer** | WorkflowStack | 書き込み（Service経由） | SQSコンシューマー、Serviceに委任 |
 | **Analysis Finalizer** | WorkflowStack | 書き込み（SQS/Service経由） | セグメントを書き込みキューに送信、再分析時に削除 |
 | **QA Regenerator** | WorkflowStack | 書き込み（Service経由） | Q&Aセグメント更新 |
@@ -325,7 +385,8 @@ graph TB
 
 | コンポーネント | 現在（LanceDB） | 変更後（OpenSearch） | 範囲 |
 |--------------|----------------|---------------------|------|
-| **LanceDB Service Lambda** | Container Lambda + LanceDB | OpenSearchクライアント（CRUD + 検索） | 全面交換 |
+| **LanceDB Service Lambda** | Rust Lambda + LanceDB | OpenSearchクライアント（CRUD + 検索） | 全面交換 |
+| **Toka Lambda** | Rustトークナイザー Lambda | 不要（Noriが韓国語を処理） | 削除 |
 | **LanceDB Writer Lambda** | SQS → LanceDB Service呼び出し | SQS → OpenSearchインデックス書き込み | 呼び出し先交換 |
 | **MCP Search Tool** | Lambda invoke → LanceDB Service | Lambda invoke → OpenSearch検索 | 呼び出し先交換 |
 | **StorageStack** | S3 Express + DDBロックテーブル | OpenSearchドメイン（VPC） | リソース交換 |
@@ -353,11 +414,10 @@ Phase 2: 書き込みパスの交換
 
 Phase 3: 読み取りパスの交換
   - MCP Search Tool LambdaのinvokeターゲットをOpenSearch検索サービスに変更
-  - Kiwi依存関係削除（Noriが韓国語トークン化を処理）
+  - Toka依存関係削除（NoriがCJKトークン化を処理）
 
 Phase 4: LanceDB依存関係の削除
-  - requirementsからlancedb, kiwipiepyを削除
-  - Container Lambda削除（通常Lambdaで対応可能）
+  - LanceServiceStack削除（Rust Lambda群）
   - S3 ExpressバケットおよびDDBロックテーブルの削除
 ```
 
@@ -365,7 +425,7 @@ Phase 4: LanceDB依存関係の削除
 
 | 項目 | 内容 |
 |------|------|
-| 韓国語トークン化 | OpenSearchには[Nori分析器](https://opensearch.org/docs/latest/analyzers/language-analyzers/#korean-nori)が内蔵されておりKiwi削除可能 |
+| CJKトークン化 | OpenSearchには[Nori分析器](https://opensearch.org/docs/latest/analyzers/language-analyzers/#korean-nori)が内蔵されておりCJKサポートも標準提供、Toka削除可能 |
 | ベクトル検索 | OpenSearch k-NNプラグイン（HNSW/IVF）がLanceDBベクトル検索を代替 |
 | 埋め込み | OpenSearch neural searchでingest pipelineから自動埋め込み可能、または事前計算済み埋め込みを使用 |
 | コスト | OpenSearchは稼働中のクラスターが必要。HAのための最低2ノードクラスター |
