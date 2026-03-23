@@ -33,7 +33,7 @@ The deploying IAM user or role requires permissions to create and manage resourc
 | Lambda | `lambda:*` | All Lambda functions and layers |
 | ECS | `ecs:*` | Backend Fargate service |
 | ECR | `ecr:*` | Container images for Lambda and ECS |
-| CodeBuild | `codebuild:*` | OCR container image build |
+| CodeBuild | `codebuild:*` | Rust Lambda builds (cargo-lambda) |
 | Step Functions | `states:*` | Document analysis workflow |
 
 ### Storage
@@ -165,7 +165,7 @@ Lambda quotas may be limited depending on your account, causing deployment or ru
 
 | Quota | Default Limit | Required | Note |
 |-------|--------------|----------|------|
-| Lambda function memory | 10,240 MB (some new accounts: 3,008 MB) | 5,120 MB | Required for OCR Lambda. Some new accounts auto-increase with usage, cannot be manually requested |
+| Lambda function memory | 10,240 MB (some new accounts: 3,008 MB) | 2,048 MB | Required for Rust PaddleOCR Lambda. Some new accounts auto-increase with usage, cannot be manually requested |
 | Lambda concurrent executions | 1,000 per region (may be lower) | 1,000 | Can request increase via Service Quotas. May take up to one day to take effect |
 
 See [FAQ](./faq#ocr-stack-deployment-fails-lambda-memory-limit) for details.
