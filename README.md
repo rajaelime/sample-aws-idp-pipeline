@@ -63,7 +63,7 @@ An AI-powered IDP prototype that transforms unstructured data into actionable in
 
 - **[Hybrid Search](docs/src/content/docs/en/vectordb.md)**
   - LanceDB vector search + Full-Text Search (FTS)
-  - Kiwi Korean morphological analyzer for keyword extraction
+  - Lindera / ICU4X tokenizer for keyword extraction
   - Result reranking with Bedrock Cohere Rerank v3.5
 
 - **Knowledge Graph**
@@ -203,7 +203,7 @@ API Gateway HTTP (IAM Auth)
 | Only segment indices passed in workflow | Support for 3000+ page documents |
 | LanceDB + S3 Express One Zone | Low-latency storage optimized for vector search |
 | Neptune DB Serverless | Knowledge graph for entity relationships, scales to zero when idle |
-| PaddleOCR dual backend (Lambda + SageMaker) | CPU models on Lambda (no cold start), GPU model (VL) on SageMaker |
+| PaddleOCR dual backend (Lambda + SageMaker) | CPU model (PP-OCRv5) on Rust Lambda, GPU model (VL) on SageMaker |
 | SageMaker Auto-scaling 0->1 | Cost optimization (Scale-to-zero when idle) |
 | ElastiCache Redis | WebSocket connection state management (faster than DynamoDB TTL) |
 | DuckDB for direct S3 queries | Query session/agent data without copying |
@@ -313,7 +313,7 @@ pnpm nx lint @idp-v2/infra --configuration=fix  # Auto-fix
 
 | Model | Purpose | Description |
 |-------|---------|-------------|
-| PP-OCRv5 / PP-StructureV3 | OCR (CPU) | Lambda container, general-purpose text extraction |
+| PP-OCRv5 | OCR (CPU) | Rust Lambda (MNN-based), general-purpose text extraction |
 | PaddleOCR-VL | OCR (GPU) | SageMaker g5.xlarge, Vision-Language model, Auto-scaling 0->1 |
 | Bedrock Data Automation | Document analysis | Async document structure analysis (optional) |
 | AWS Transcribe | Speech-to-text | Audio/video text conversion |
@@ -402,8 +402,12 @@ sample-aws-idp-pipeline/
 - LanceDB + S3 Express One Zone (vector storage)
 - Neptune DB Serverless (knowledge graph)
 - DynamoDB (One Table Design)
-- Kiwi (Korean morphological analyzer)
 - DuckDB (direct S3 queries)
+
+### Lambda Services (Rust)
+- Lindera / ICU4X (multilingual tokenizer)
+- LanceDB Service (vector search + FTS)
+- PaddleOCR (MNN-based CPU inference)
 
 ### Frontend (TypeScript)
 - React 19 + TanStack Router

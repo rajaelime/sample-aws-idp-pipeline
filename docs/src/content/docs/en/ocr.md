@@ -9,10 +9,10 @@ A processing pipeline that routes OCR tasks to two backends based on model chara
 
 | Backend | Models | Reason |
 |---------|--------|--------|
-| **Lambda (CPU)** | PP-OCRv5 | Rust Lambda with MNN inference, no GPU needed, fast startup |
+| **Lambda (CPU)** | PP-OCRv5 | Lightweight model, no GPU needed, fast startup |
 | **SageMaker (GPU)** | PaddleOCR-VL | Vision-Language model, GPU required |
 
-PP-OCRv5 runs on a Rust Lambda using MNN-based CPU inference with models bundled at build time, so there is no cold start overhead from model downloads. PaddleOCR-VL requires GPU for per-region VLM inference and runs on SageMaker.
+PP-OCRv5 runs fast enough on CPU alone, so it is processed directly on Lambda without SageMaker cold start overhead. The Lambda processor is implemented in Rust for optimized memory usage. PaddleOCR-VL requires GPU for per-region VLM inference and runs on SageMaker.
 
 ---
 
@@ -20,11 +20,11 @@ PP-OCRv5 runs on a Rust Lambda using MNN-based CPU inference with models bundled
 
 ```
 SQS (OCR Queue)
-  → Lambda (OCR Invoker) ─── Routes by model
+  → Lambda (OCR Orchestrator) ─── Routes by model
       │
       ├─ [PP-OCRv5] ── CPU model
-      │     → Lambda (OCR Processor) ── Python adapter
-      │         → Lambda (Rust PaddleOCR) ── MNN inference
+      │     → Lambda (OCR Processor, Python)
+      │         → Lambda (Rust PaddleOCR, MNN-based inference)
       │             ├─ S3 (save result.json)
       │             └─ DynamoDB (update preprocess status)
       │
@@ -47,41 +47,39 @@ SageMaker Scale-in:
 
 ### Lambda (CPU) - PP-OCRv5
 
-A two-Lambda architecture: the OCR Processor (Python) invokes the Rust PaddleOCR Lambda for inference, then transforms the response and writes results to S3 and DynamoDB.
+PP-OCRv5 runs on Lambda via a two-stage invocation: a Python orchestrator Lambda invokes a Rust Lambda that performs MNN-based CPU inference. Results are written directly to S3 and DynamoDB status is updated without going through SageMaker.
 
-**Rust PaddleOCR Lambda:**
-
-| Item | Value |
-|------|-------|
-| Function Name | `idp-v2-paddle-ocr` |
-| Runtime | Rust (cargo-lambda) |
-| Architecture | x86_64 |
-| Memory | 2048 MB |
-| Timeout | 5 min |
-| Inference | MNN-based CPU inference |
-| Models | Bundled at build time (no runtime download) |
-
-**OCR Processor Lambda:**
+#### OCR Lambda Processor (Python)
 
 | Item | Value |
 |------|-------|
 | Function Name | `idp-v2-ocr-lambda-processor` |
 | Runtime | Python 3.14 |
-| Architecture | ARM64 |
 | Memory | 256 MB |
 | Timeout | 10 min |
-| Role | Invoke Rust OCR Lambda, transform response, save results |
+| Role | Invoke Rust OCR Lambda, transform response, save results to S3, update DynamoDB |
+
+#### Rust PaddleOCR Lambda
+
+| Item | Value |
+|------|-------|
+| Function Name | `idp-v2-paddle-ocr` |
+| Runtime | Rust (cargo-lambda-cdk) |
+| Architecture | x86_64 |
+| Memory | 2048 MB |
+| Timeout | 10 min |
+| Inference | MNN-based CPU inference (PP-OCRv5) |
 
 **Processing Flow:**
 
 ```
-OCR Invoker (Invoke async, Event type)
-  → OCR Processor (Python)
-      → Invoke Rust PaddleOCR Lambda (synchronous)
-          ├─ Read file from S3
-          ├─ Run MNN inference (PP-OCRv5)
-          └─ Return OCR results
-      ← Transform response to standard format
+OCR Orchestrator
+  → OCR Lambda Processor (Python, async invoke)
+      → Rust PaddleOCR Lambda (sync invoke, RequestResponse)
+          ├─ Download file from S3
+          ├─ Run MNN-based OCR inference
+          └─ Return page results
+      ← Transform Rust response to standard format
       ├─ Save result.json to S3
       └─ Update DynamoDB status (COMPLETED/FAILED)
 ```
@@ -119,7 +117,7 @@ When N text regions are detected, the VLM is called **N times sequentially**. Du
 - ~25% GPU utilization (CPU pre/post-processing waits between VLM inferences)
 - Multi-process not possible on single GPU (VLM model ~12GB, OOM with 2 instances)
 
-These constraints are why PP-OCRv5 runs on Lambda (as a Rust Lambda with MNN inference) to avoid SageMaker cold start, while only VL remains on SageMaker where GPU is required.
+These constraints are why lightweight models run on Lambda to avoid SageMaker cold start, while only VL remains on SageMaker where GPU is required.
 
 ---
 
@@ -156,7 +154,7 @@ When no work remains in the queue for 10 minutes, the CloudWatch alarm fires, tr
 ### Cost Optimization Summary
 
 ```
-Document arrives ─→ OCR Invoker checks model
+Document arrives ─→ OCR Orchestrator checks model
                     ├─ [PP-OCRv5] → Lambda processes immediately (no cold start)
                     └─ [VL] → SageMaker Scale-out (0 → 1)
                                ↓
@@ -190,30 +188,29 @@ On-demand cost for `ml.g5.xlarge` is approximately $1.41/hour. With Scale-to-zer
 | Trigger | SQS (batch size: 1) |
 | Role | Route by model: Lambda async invoke or SageMaker Scale-out + async inference |
 
-### Rust PaddleOCR Lambda
-
-| Item | Value |
-|------|-------|
-| Name | `idp-v2-paddle-ocr` |
-| Runtime | Rust (cargo-lambda) |
-| Architecture | x86_64 |
-| Memory | 2048 MB |
-| Timeout | 5 min |
-| Role | MNN-based OCR inference, read files from S3 |
-| Target Model | PP-OCRv5 |
-
 ### OCR Lambda Processor
 
 | Item | Value |
 |------|-------|
 | Name | `idp-v2-ocr-lambda-processor` |
 | Runtime | Python 3.14 |
-| Architecture | ARM64 |
 | Memory | 256 MB |
 | Timeout | 10 min |
 | Trigger | Lambda async invoke (from OCR Invoker) |
-| Role | Invoke Rust OCR Lambda, transform response, save results to S3, update DynamoDB status |
-| Target Model | PP-OCRv5 |
+| Role | Invoke Rust OCR Lambda, transform response, save results to S3, update DynamoDB |
+| Target Models | PP-OCRv5 |
+
+### Rust PaddleOCR Lambda
+
+| Item | Value |
+|------|-------|
+| Name | `idp-v2-paddle-ocr` |
+| Runtime | Rust (cargo-lambda-cdk) |
+| Architecture | x86_64 |
+| Memory | 2048 MB |
+| Timeout | 10 min |
+| Trigger | Sync invoke from OCR Lambda Processor |
+| Role | MNN-based PP-OCRv5 CPU inference |
 
 ### OCR Complete Handler
 
@@ -256,7 +253,7 @@ On-demand cost for `ml.g5.xlarge` is approximately $1.41/hour. With Scale-to-zer
 
 | Model | Backend | Description | Use Case |
 |-------|---------|-------------|----------|
-| **PP-OCRv5** | Lambda (CPU) | Rust Lambda with MNN inference, high-accuracy text extraction | General documents, multilingual text |
+| **PP-OCRv5** | Lambda (CPU, Rust) | High-accuracy general-purpose text extraction OCR | General documents, multilingual text |
 | **PaddleOCR-VL** | SageMaker (GPU) | Vision-language model for document understanding | Complex documents, contextual understanding |
 
 ---

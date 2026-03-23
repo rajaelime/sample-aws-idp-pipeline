@@ -3,121 +3,147 @@ title: "Features"
 description: "Sample AWS IDP Pipeline Key Features"
 ---
 
-## 1. Getting Started
+## 1. Project Management
 
-<video width="100%" controls muted playsinline>
-  <source src="https://d3g6mvioa0ibc9.cloudfront.net/1.Getting+Started.mp4" type="video/mp4" />
-</video>
+Manage documents and analysis results on a per-project basis.
 
-### Login
+- Create / edit / delete projects
+- Language settings (Korean, English, Japanese)
+- Custom document analysis prompts
+- Per-project color themes
 
-Sign in with Amazon Cognito. Chat sessions and artifacts are managed per user.
-
-### Create Project -- Where It Begins
-
-Create a project and configure language and analysis direction. All documents and results are managed at the project level.
+<!-- ![Project Management](../assets/features-project.gif) -->
 
 ---
 
-## 2. Document Analysis
+## 2. Document Upload & Preprocessing
 
-<video width="100%" controls muted playsinline>
-  <source src="https://d3g6mvioa0ibc9.cloudfront.net/2.Document+Analysis.mp4" type="video/mp4" />
-</video>
+Upload files in various formats and the system automatically detects the file type and routes them to the appropriate preprocessing pipeline. Supports documents (PDF, DOC, TXT), images (PNG, JPG, GIF, TIFF), videos (MP4, MOV, AVI), and audio files (MP3, WAV, FLAC) up to 500MB.
 
-### Upload Documents -- Multiple Formats
-
-Upload documents and configure analysis options such as BDA, OCR, and Transcribe. You can also select the language for analysis.
-
-| File Type | Supported Formats | Preprocessing |
-|-----------|-------------------|---------------|
-| Documents | PDF, DOCX, DOC, TXT, MD | PaddleOCR + BDA (optional) + PDF text extraction |
-| Images | PNG, JPG, JPEG, GIF, TIFF, WebP | PaddleOCR + BDA (optional) |
-| Presentations | PPTX, PPT | PaddleOCR + BDA (optional) |
-| Videos | MP4, MOV, AVI, MKV, WebM | AWS Transcribe + BDA (optional) |
-| Audio | MP3, WAV, FLAC, M4A | AWS Transcribe |
-| CAD | DXF | PaddleOCR |
-| Web | .webreq (URL crawling) | Web Crawler Agent |
+- Drag-and-drop / multi-file upload
+- Automatic file type detection and pipeline routing
+- PaddleOCR (SageMaker) text extraction
+- Bedrock Data Automation document structure analysis (optional)
+- PDF text layer extraction (pypdf)
+- Audio/video transcription (AWS Transcribe)
 
 > For detailed preprocessing flows by file type, see [Preprocessing Pipeline](./preprocessing.md).
 
-### Intelligent Processing -- Analysis Pipeline
+| File Type | Supported Formats | Preprocessing |
+|-----------|-------------------|---------------|
+| Documents | PDF, DOC, TXT | PaddleOCR + BDA (optional) + PDF text extraction |
+| Images | PNG, JPG, GIF, TIFF | PaddleOCR + BDA (optional) |
+| Videos | MP4, MOV, AVI | AWS Transcribe + BDA (optional) |
+| Audio | MP3, WAV, FLAC | AWS Transcribe |
 
-Document analysis runs automatically. Track progress in real time through WebSocket notifications.
+<!-- ![Document Upload](../assets/features-upload.gif) -->
+
+---
+
+## 3. AI Analysis Pipeline
+
+Uploaded documents are automatically analyzed through a Step Functions workflow. A Strands SDK-based ReAct Agent performs in-depth analysis on each segment using an iterative question-answer approach.
+
+- Per-segment deep analysis (Claude Sonnet 4.6 Vision ReAct Agent)
+- Video analysis (TwelveLabs Pegasus 1.2)
+- Document summary generation (Claude Haiku 4.5)
+- Vector embedding and storage (Nova Embed 1024d → LanceDB)
+- Reanalysis / Q&A regeneration / Q&A add and delete
 
 ```
 Document Upload
-  -> Preprocessing (OCR, BDA, Transcribe)
-    -> Segment Splitting
-      -> Distributed Map (max 30 concurrency)
-        -> ReAct Agent Analysis (per segment)
-          -> Vector Embedding -> LanceDB Storage
-      -> Document Summary Generation
+  → Preprocessing (OCR, BDA, Transcribe)
+    → Segment Splitting
+      → Distributed Map (max 30 concurrency)
+        → ReAct Agent Analysis (per segment)
+          → Vector Embedding → LanceDB Storage
+      → Document Summary Generation
 ```
 
 > For detailed analysis flow, see [AI Analysis Pipeline](./analysis.md).
 
-### Deep Analysis -- ReAct Agent
-
-The AI Agent iteratively questions and answers to analyze each segment. It visually understands images, tables, and diagrams. Review results from each processing step individually: BDA, OCR, Parser, Transcribe, and AI analysis.
-
-### Video & Audio Analysis -- Multimodal Processing
-
-Transcribe converts speech to text, and AI analyzes visual content with timecodes. View Transcribe results and AI analysis for each video, and navigate through segments with timecodes.
-
-### Web Crawling -- Collect Data from URLs
-
-Enter a URL and instructions, and the AI navigates the web page, automatically collecting content into the analysis pipeline. Each visited site is organized into its own page with extracted content and AI analysis results.
+<!-- ![AI Analysis Pipeline](../assets/features-analysis.gif) -->
 
 ---
 
-## 3. Knowledge Discovery
+## 4. Real-time Notifications
 
-<video width="100%" controls muted playsinline>
-  <source src="https://d3g6mvioa0ibc9.cloudfront.net/3.Knowledge+Discovery.mp4" type="video/mp4" />
-</video>
+Workflow progress is delivered to the frontend in real-time via WebSocket. DynamoDB Streams detects state changes, looks up active connections in Redis, and pushes events through the WebSocket API.
 
-### Knowledge Graph -- Entity Relationships
+- Step-level start / complete / error notifications
+- Segment analysis progress (X/Y completed)
+- Workflow start / complete / error notifications
+- Artifact and session creation events
 
-Entities extracted from analyzed documents are automatically linked. Explore the graph to discover hidden relationships across documents.
-
-### Tag Cloud -- Keywords at a Glance
-
-Visualizes entity frequency and importance. Instantly grasp what a document is about.
+<!-- ![Real-time Notifications](../assets/features-realtime.gif) -->
 
 ---
 
-## 4. AI Interaction
+## 5. Workflow Detail View
 
-<video width="100%" controls muted playsinline>
-  <source src="https://d3g6mvioa0ibc9.cloudfront.net/4.AI+Interaction.mp4" type="video/mp4" />
-</video>
+View detailed per-segment results for analyzed documents.
 
-### AI Chat -- Hybrid Search & Graph Traversal
+- Per-segment OCR / BDA / PDF text / AI analysis results
+- Video segment timecode-based viewing
+- Transcription segment review
+- Q&A regeneration (with custom instructions)
+- Q&A add and delete
+- Full document reanalysis
 
-When a question is asked, the agent first reads the Skills to understand the guidelines for search and execution. Following the Skills, it performs a hybrid search combining vector similarity and keyword matching, then finds connected pages through the knowledge graph to gather additional context. Review referenced documents, graph results, and tool execution details from the response.
-
-### Create Artifacts -- Document Generation
-
-The agent reads the Skills for artifact creation, then searches for the necessary content from analyzed data. Following the guidelines, it generates PDFs, Word documents, Excel spreadsheets, charts, and diagrams. Generated artifacts appear in the Artifacts panel on the right for preview and download.
-
-### Define Agents -- Custom AI Configuration
-
-Define specialized AI agents for your project. For example, a financial analyst, a legal reviewer, and more. Select a custom agent and ask a question -- the agent responds based on its specialized role and instructions.
-
-### Refine & Enhance -- Targeted Reanalysis
-
-Add instructions to rerun specific segments, or append new analysis without overwriting the originals. Manually add new questions or analysis entries to supplement the original results.
+<!-- ![Workflow Detail](../assets/features-workflow-detail.gif) -->
 
 ---
 
-## 5. Voice Agent
+## 6. AI Chat (Agent Core)
 
-<video width="100%" controls muted playsinline>
-  <source src="https://d3g6mvioa0ibc9.cloudfront.net/5.Voice+Agent.mp4" type="video/mp4" />
-</video>
+A conversational AI interface powered by Bedrock Agent Core. IDP Agent and Research Agent leverage tools via MCP Gateway for document search, artifact generation, and more, performing Q&A based on documents uploaded to the project.
 
-### Voice Agent -- Real-Time Conversation
+### Chat Features
 
-Speak naturally to search, analyze, and invoke tools. Powered by Amazon Nova Sonic with low-latency streaming. The user asks a question by voice, the agent searches documents and responds in real time.
+- Streaming responses with real-time tool usage display
+- Image/document attachments (multi-modal input)
+- Markdown rendering and code highlighting
+- Session management (create / rename / delete, conversation history preserved)
 
+### Hybrid Search
+
+The AI Agent automatically searches project documents during conversations.
+
+- Vector search + Full-Text Search (FTS)
+- Multilingual tokenization (Lindera / ICU4X)
+- Cohere Rerank v3.5 result reranking
+
+### Custom Agents
+
+Create custom agents per project for specialized analysis.
+
+- Agent name and system prompt configuration
+- Create / edit / delete agents
+- Switch agents during conversations
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| search_documents | Hybrid search across project documents |
+| save/load/edit_markdown | Create and edit markdown files |
+| create_pdf, extract_pdf_text/tables | Generate PDFs and extract text/tables |
+| create_docx, extract_docx_text/tables | Generate Word documents and extract text/tables |
+| generate_image | AI image generation |
+| code_interpreter | Python code execution |
+
+<!-- ![AI Chat](../assets/features-chat.gif) -->
+
+---
+
+## 7. Artifact Management
+
+Manage files generated by agents during AI chat (PDF, DOCX, images, markdown, etc.) in the artifact gallery.
+
+- Browse and search artifacts
+- Inline preview (images, PDF, markdown, HTML, DOCX)
+- Download and delete
+- Filter by project
+- Navigate to originating project
+
+<!-- ![Artifacts Management](../assets/features-artifacts.gif) -->
