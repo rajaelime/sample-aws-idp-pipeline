@@ -1,10 +1,13 @@
+import contextlib
 import json
 
 import boto3
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 
 from app.config import get_config
+from app.ddb import query_documents
+from app.ddb.workflows import query_workflows
 
 router = APIRouter(prefix="/projects/{project_id}/graph", tags=["graph"])
 
@@ -56,8 +59,152 @@ class GraphEdge(BaseModel):
 class TagCloudItem(BaseModel):
     id: str
     name: str
-    type: str
     connections: int
+
+
+class RebuildGraphResponse(BaseModel):
+    status: str
+    document_count: int
+
+
+def _rebuild_graph_background(project_id: str) -> None:
+    """Background task: clear project graph, then rebuild from S3 analysis data."""
+    documents = query_documents(project_id)
+
+    # 1. Clear existing graph per workflow
+    for doc in documents:
+        workflows = query_workflows(doc.data.document_id)
+        for wf in workflows:
+            wf_id = wf.SK.replace("WF#", "")
+            with contextlib.suppress(Exception):
+                invoke_graph_service(
+                    "delete_by_workflow",
+                    {"project_id": project_id, "workflow_id": wf_id},
+                )
+
+    # 2. Rebuild each completed document
+    for doc in documents:
+        workflows = query_workflows(doc.data.document_id)
+        if not workflows:
+            continue
+        completed = [w for w in workflows if w.data.status in ("completed", "failed")]
+        if not completed:
+            continue
+        wf = max(completed, key=lambda w: w.created_at)
+        try:
+            _invoke_graph_builder_and_send(project_id, doc.data.document_id, wf)
+        except Exception as e:
+            print(f"Failed to rebuild graph for {doc.data.document_id}: {e}")
+
+
+@router.post("/rebuild")
+def rebuild_graph(
+    project_id: str,
+    background_tasks: BackgroundTasks,
+) -> RebuildGraphResponse:
+    """Rebuild knowledge graph from existing S3 analysis data."""
+    documents = query_documents(project_id)
+    if not documents:
+        raise HTTPException(status_code=404, detail="No documents found")
+
+    background_tasks.add_task(_rebuild_graph_background, project_id)
+
+    return RebuildGraphResponse(
+        status="rebuilding",
+        document_count=len(documents),
+    )
+
+
+def _invoke_graph_builder_and_send(project_id: str, document_id: str, wf) -> None:
+    """Invoke graph-builder synchronously, then send batches to graph-service."""
+    client = get_lambda_client()
+    config = get_config()
+    wf_id = wf.SK.replace("WF#", "")
+
+    # 1. Invoke graph-builder synchronously
+    payload = {
+        "workflow_id": wf_id,
+        "document_id": document_id,
+        "project_id": project_id,
+        "file_uri": wf.data.file_uri,
+        "file_type": wf.data.file_type or "",
+        "segment_count": wf.data.total_segments or 0,
+        "language": wf.data.language or "en",
+    }
+    resp = client.invoke(
+        FunctionName="idp-v2-graph-builder",
+        InvocationType="RequestResponse",
+        Payload=json.dumps(payload),
+    )
+    result = json.loads(resp["Payload"].read())
+    if resp.get("FunctionError"):
+        print(f"graph-builder error for {document_id}: {result}")
+        return
+
+    graph_batches = result.get("graph_batches", [])
+    s3_bucket = result.get("s3_bucket", "")
+    if not graph_batches or not s3_bucket:
+        print(f"No graph batches for {document_id}")
+        return
+
+    # 2. Read S3 work files and send to graph-service
+    s3 = boto3.client("s3", region_name=config.aws_region)
+    for batch_info in graph_batches:
+        action = batch_info["action"]
+        item_key = batch_info["item_key"]
+        s3_key = batch_info["s3_key"]
+        batch_size = batch_info.get("batch_size", 100)
+        extra_params = batch_info.get("extra_params", {})
+
+        obj = s3.get_object(Bucket=s3_bucket, Key=s3_key)
+        items = json.loads(obj["Body"].read())
+
+        for i in range(0, len(items), batch_size):
+            batch = items[i : i + batch_size]
+            invoke_graph_service(action, {**extra_params, item_key: batch})
+
+    print(f"Rebuild complete for {document_id}: {len(graph_batches)} batches")
+
+
+def _rebuild_document_graph_background(project_id: str, document_id: str) -> None:
+    """Background task: clear graph for a document, rebuild from S3 analysis data."""
+    workflows = query_workflows(document_id)
+
+    # 1. Clear existing graph per workflow
+    for wf in workflows:
+        wf_id = wf.SK.replace("WF#", "")
+        with contextlib.suppress(Exception):
+            invoke_graph_service(
+                "delete_by_workflow",
+                {"project_id": project_id, "workflow_id": wf_id},
+            )
+
+    # 2. Pick latest completed workflow and rebuild
+    completed = [w for w in workflows if w.data.status in ("completed", "failed")]
+    if not completed:
+        return
+    wf = max(completed, key=lambda w: w.created_at)
+    _invoke_graph_builder_and_send(project_id, document_id, wf)
+
+
+@router.post("/documents/{document_id}/rebuild")
+def rebuild_document_graph(
+    project_id: str,
+    document_id: str,
+    background_tasks: BackgroundTasks,
+) -> RebuildGraphResponse:
+    """Rebuild knowledge graph for a single document from existing S3 analysis data."""
+    workflows = query_workflows(document_id)
+    completed = [w for w in workflows if w.data.status in ("completed", "failed")]
+    if not completed:
+        raise HTTPException(status_code=404, detail="No completed workflow found")
+
+    background_tasks.add_task(_rebuild_document_graph_background, project_id, document_id)
+
+    return RebuildGraphResponse(
+        status="rebuilding",
+        document_count=1,
+    )
 
 
 class GraphResponse(BaseModel):
@@ -119,17 +266,33 @@ def get_document_graph(
         params["search"] = search
 
     result = invoke_graph_service("get_document_graph", params)
-    tc_raw = result.get("tagcloud")
-    tc = [TagCloudItem(**t) for t in tc_raw] if tc_raw else None
     return GraphResponse(
         nodes=[GraphNode(**n) for n in result.get("nodes", [])],
         edges=[GraphEdge(**e) for e in result.get("edges", [])],
-        tagcloud=tc,
         total_segments=result.get("total_segments"),
         mode=result.get("mode"),
         focus_page=result.get("focus_page"),
         from_page=result.get("from_page"),
         to_page=result.get("to_page"),
+    )
+
+
+class TagCloudResponse(BaseModel):
+    tags: list[TagCloudItem]
+
+
+@router.get("/documents/{document_id}/tagcloud")
+def get_document_tagcloud(
+    project_id: str,
+    document_id: str,
+) -> TagCloudResponse:
+    """Get lightweight tag cloud data for a document (entity names + connection counts)."""
+    result = invoke_graph_service(
+        "get_document_tagcloud",
+        {"project_id": project_id, "document_id": document_id},
+    )
+    return TagCloudResponse(
+        tags=[TagCloudItem(**t) for t in result.get("tags", [])],
     )
 
 
@@ -176,7 +339,6 @@ def expand_all_clusters(
 class EntityDetail(BaseModel):
     id: str
     name: str
-    type: str
     description: str | None = None
     aliases: list[str] | None = None
     neighbors: list[GraphNode] = []
@@ -218,7 +380,6 @@ def get_entity_detail(
     return EntityDetail(
         id=entity["id"],
         name=entity["name"],
-        type=entity["type"],
         description=entity.get("description"),
         aliases=entity.get("aliases"),
         neighbors=neighbors,

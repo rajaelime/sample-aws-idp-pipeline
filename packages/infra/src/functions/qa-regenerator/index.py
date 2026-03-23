@@ -74,6 +74,18 @@ def _download_image(image_uri: str) -> bytes | None:
         return None
 
 
+def _detect_media_type(image_data: bytes) -> str:
+    if image_data[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'image/png'
+    if image_data[:2] == b'\xff\xd8':
+        return 'image/jpeg'
+    if image_data[:4] == b'GIF8':
+        return 'image/gif'
+    if image_data[:4] == b'RIFF' and image_data[8:12] == b'WEBP':
+        return 'image/webp'
+    return 'image/png'
+
+
 def _resize_image_if_needed(image_data: bytes, max_size_mb: float = 3.5) -> bytes:
     try:
         max_bytes = int(max_size_mb * 1024 * 1024)
@@ -125,7 +137,7 @@ def _build_context(segment_data: dict) -> str:
             end = seg.get('end_time', '')
             transcript = seg.get('transcript', '')
             segments_text.append(f'[{start}s - {end}s] {transcript}')
-        parts.append(f'## Transcribe Segments\n' + '\n'.join(segments_text))
+        parts.append('## Transcribe Segments\n' + '\n'.join(segments_text))
 
     return '\n\n'.join(parts) if parts else 'No previous context available.'
 
@@ -238,9 +250,17 @@ def handler(event, _context):
     file_uri = event.get('file_uri', '')
     segment_index = event.get('segment_index', 0)
     qa_index = event.get('qa_index', 0)
-    question = event.get('question', '')
+    raw_question = event.get('question', '')
+    # Base analysis has placeholder like "Page N Analysis" — treat as comprehensive analysis
+    is_base_analysis = not raw_question or raw_question.endswith('Analysis')
+    question = (
+        'Provide a comprehensive analysis of this document segment. '
+        'Extract and describe all key information, data, and visual elements.'
+    ) if is_base_analysis else raw_question
     user_instructions = event.get('user_instructions', '')
-    language = event.get('language', 'English')
+    language = event.get('language', 'en')
+    language_names = {'ko': 'Korean', 'en': 'English', 'ja': 'Japanese', 'zh': 'Chinese'}
+    language_name = language_names.get(language, 'English')
     workflow_id = event.get('workflow_id', '')
     document_id = event.get('document_id', '')
     project_id = event.get('project_id', 'default')
@@ -306,21 +326,22 @@ def handler(event, _context):
                 previous_qa=previous_qa,
                 question=question,
                 user_instructions=user_instructions or 'No additional instructions.',
-                language=language
+                language=language_name
             )
         else:
-            prompt = f'Answer this question about the document: {question}\n\nRespond in {language}.'
+            prompt = f'Answer this question about the document: {question}\n\nRespond in {language_name}.'
 
         # 6. Call Bedrock Claude vision API
         messages_content = []
         if image_data:
             resized = _resize_image_if_needed(image_data)
+            media_type = _detect_media_type(resized)
             image_base64 = base64.b64encode(resized).decode('utf-8')
             messages_content.append({
                 'type': 'image',
                 'source': {
                     'type': 'base64',
-                    'media_type': 'image/png',
+                    'media_type': media_type,
                     'data': image_base64
                 }
             })
@@ -349,8 +370,11 @@ def handler(event, _context):
     _set_qa_regen_status(workflow_id, segment_index, 'completed')
 
     # 8. Update ai_analysis in S3
+    # For base analysis, preserve the original placeholder (e.g. "Page N Analysis")
+    # so downstream detection logic continues to recognize it as base analysis.
+    stored_query = raw_question if is_base_analysis else question
     new_item = {
-        'analysis_query': question,
+        'analysis_query': stored_query,
         'content': answer[:3000]
     }
     if mode == 'add':
@@ -370,15 +394,16 @@ def handler(event, _context):
     })
     print(f'LanceDB delete result: {delete_result}')
 
-    qa_content = _build_qa_content(question, answer[:3000])
+    qa_content = _build_qa_content(stored_query, answer[:3000])
     add_result = invoke_lancedb('add_record', {
         'workflow_id': workflow_id,
         'document_id': document_id,
         'project_id': project_id,
         'segment_index': segment_index,
         'qa_index': qa_index,
-        'question': question,
+        'question': stored_query,
         'content_combined': qa_content,
+        'language': language,
         'file_uri': file_uri,
         'file_type': file_type,
         'image_uri': image_uri,
@@ -403,7 +428,7 @@ def handler(event, _context):
         'analyses': [{
             'segment_index': segment_index,
             'qa_index': qa_index,
-            'question': question,
+            'question': stored_query,
         }],
     })
     print(f'Graph analysis node created: seg={segment_index}, qa={qa_index}')
@@ -419,7 +444,7 @@ def handler(event, _context):
 
     return {
         'statusCode': 200,
-        'analysis_query': question,
+        'analysis_query': stored_query,
         'content': answer[:3000],
         'qa_index': qa_index
     }

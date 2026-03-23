@@ -8,11 +8,6 @@ export const OCR_MODELS = [
     hasOptions: true,
   },
   {
-    value: 'pp-structurev3',
-    hasLangOption: true,
-    hasOptions: true,
-  },
-  {
     value: 'paddleocr-vl',
     hasLangOption: false,
     hasOptions: false,
@@ -315,96 +310,6 @@ export default function OcrSettingsForm({
                 </div>
               </div>
             </label>
-
-            <label
-              className={
-                isBento
-                  ? 'bento-checkbox-option'
-                  : 'flex items-start gap-2 cursor-pointer'
-              }
-            >
-              <input
-                type="checkbox"
-                checked={settings.use_doc_unwarping}
-                onChange={(e) =>
-                  onChange({
-                    ...settings,
-                    use_doc_unwarping: e.target.checked,
-                  })
-                }
-                className={
-                  isBento
-                    ? undefined
-                    : 'mt-0.5 accent-blue-400 appearance-auto bg-transparent'
-                }
-              />
-              <div>
-                <div
-                  className={
-                    isBento
-                      ? 'bento-checkbox-label'
-                      : 'text-sm text-[#334155] dark:text-[#cbd5e1]'
-                  }
-                >
-                  {t('ocr.documentUnwarping')}
-                </div>
-                <div
-                  className={
-                    isBento
-                      ? 'bento-checkbox-desc'
-                      : 'text-xs text-[#64748b] dark:text-[#94a3b8]'
-                  }
-                >
-                  {t('ocr.documentUnwarpingDesc')}
-                </div>
-              </div>
-            </label>
-
-            {settings.ocr_model === 'pp-ocrv5' && (
-              <label
-                className={
-                  isBento
-                    ? 'bento-checkbox-option'
-                    : 'flex items-start gap-2 cursor-pointer'
-                }
-              >
-                <input
-                  type="checkbox"
-                  checked={settings.use_textline_orientation}
-                  onChange={(e) =>
-                    onChange({
-                      ...settings,
-                      use_textline_orientation: e.target.checked,
-                    })
-                  }
-                  className={
-                    isBento
-                      ? undefined
-                      : 'mt-0.5 accent-blue-400 appearance-auto bg-transparent'
-                  }
-                />
-                <div>
-                  <div
-                    className={
-                      isBento
-                        ? 'bento-checkbox-label'
-                        : 'text-sm text-[#334155] dark:text-[#cbd5e1]'
-                    }
-                  >
-                    {t('ocr.textlineOrientation')}
-                  </div>
-                  <div
-                    className={
-                      isBento
-                        ? 'bento-checkbox-desc'
-                        : 'text-xs text-[#64748b] dark:text-[#94a3b8]'
-                    }
-                  >
-                    {t('ocr.textlineOrientationDesc')}
-                  </div>
-                </div>
-              </label>
-            )}
           </div>
         </div>
       )}

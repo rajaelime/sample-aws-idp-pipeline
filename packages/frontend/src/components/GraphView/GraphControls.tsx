@@ -44,8 +44,11 @@ export default function GraphControls({
   const maxPage = Math.max(1, totalSegments);
 
   // Sync local state when props change externally
-  useEffect(() => setLocalFrom(String(pageRange[0])), [pageRange[0]]);
-  useEffect(() => setLocalTo(String(pageRange[1])), [pageRange[1]]);
+  const rangeFrom = pageRange[0];
+  const rangeTo = pageRange[1];
+  useEffect(() => setLocalSearch(searchTerm), [searchTerm]);
+  useEffect(() => setLocalFrom(String(rangeFrom)), [rangeFrom]);
+  useEffect(() => setLocalTo(String(rangeTo)), [rangeTo]);
   useEffect(() => setLocalPage(String(specificPage)), [specificPage]);
 
   const validateRange = useCallback((): [number, number] => {

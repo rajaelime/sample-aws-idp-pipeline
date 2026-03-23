@@ -29,7 +29,7 @@ export async function handler(event: AddQaInput): Promise<AddQaOutput> {
     );
   }
 
-  const language = await getProjectLanguage(project_id);
+  const language = wf.data.language ?? (await getProjectLanguage(project_id));
 
   const result = await invokeQaRegenerator({
     mode: 'add',

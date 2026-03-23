@@ -402,11 +402,14 @@ async function convertWorkbookToSheets(
   let fallbackWarnings: string[] = [];
 
   try {
+    // exceljs types expect Buffer but ArrayBuffer works at runtime
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     wb = await new ExcelWorkbook().xlsx.load(data as any);
   } catch {
     // exceljs crashes on drawings/charts — strip them and retry
     const sanitized = await stripDrawingsFromXlsx(data);
     fallbackWarnings = sanitized.warnings;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     wb = await new ExcelWorkbook().xlsx.load(sanitized.data as any);
   }
 

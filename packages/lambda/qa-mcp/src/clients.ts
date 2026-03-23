@@ -9,12 +9,6 @@ import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 const ddbClient = DynamoDBDocumentClient.from(new DynamoDBClient());
 const lambdaClient = new LambdaClient();
 
-const LANGUAGE_MAP: Record<string, string> = {
-  ko: 'Korean',
-  en: 'English',
-  ja: 'Japanese',
-};
-
 interface WorkflowItem {
   PK: string;
   SK: string;
@@ -73,8 +67,7 @@ export async function getProjectLanguage(projectId: string): Promise<string> {
     }),
   );
 
-  const lang = (result.Item?.data as { language?: string })?.language ?? 'en';
-  return LANGUAGE_MAP[lang] ?? 'English';
+  return (result.Item?.data as { language?: string })?.language ?? 'en';
 }
 
 export async function invokeQaRegenerator(
