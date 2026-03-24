@@ -13,8 +13,8 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.958.0",
-    "@aws-sdk/client-lambda": "^3.958.0"
+    "@aws-sdk/client-bedrock-runtime": "^3.1015.0",
+    "@aws-sdk/client-lambda": "^3.1015.0"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.145",
