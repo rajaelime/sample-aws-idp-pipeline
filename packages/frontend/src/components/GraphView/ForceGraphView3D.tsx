@@ -9,6 +9,7 @@ import {
   ANALYSIS_BASE_COLOR,
   ANALYSIS_EXTRA_COLOR,
   DOCUMENT_COLOR,
+  ORIGIN_SEGMENT_COLOR,
   LINK_TYPE_COLORS,
 } from './constants';
 
@@ -497,14 +498,18 @@ export default function ForceGraphView({
         });
       } else if (node.label === 'segment') {
         const segIdx = node.properties?.segment_index as number | undefined;
-        const segLabel = segIdx != null ? `Page ${segIdx + 1}` : node.name;
+        const isOrigin = node.properties?.is_origin as boolean | undefined;
+        const segLabel =
+          segIdx != null
+            ? `${isOrigin ? '\u2605 ' : ''}Page ${segIdx + 1}`
+            : node.name;
         nodes.push({
           id: node.id,
           label: segLabel,
           nodeType: 'segment',
           matched: isMatched,
-          color: SEGMENT_COLOR,
-          radius: isMatched ? 16 : 13,
+          color: isOrigin ? ORIGIN_SEGMENT_COLOR : SEGMENT_COLOR,
+          radius: isOrigin ? 16 : isMatched ? 16 : 13,
         });
       } else if (node.label === 'analysis') {
         const qaLabel = node.name;

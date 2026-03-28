@@ -15,6 +15,7 @@ export const ANALYSIS_COLOR = '#c084fc';
 export const ANALYSIS_BASE_COLOR = '#a78bfa';
 export const ANALYSIS_EXTRA_COLOR = '#f472b6';
 export const DOCUMENT_COLOR = '#22c55e';
+export const ORIGIN_SEGMENT_COLOR = '#f59e0b';
 export const GRAPH_BG = '#1e2235';
 
 export const LINK_TYPE_COLORS: Record<string, string> = {
@@ -23,4 +24,5 @@ export const LINK_TYPE_COLORS: Record<string, string> = {
   MENTIONED_IN: '#8b5cf6',
   RELATES_TO: '#6b7280',
   APPEARS_IN: '#f59e0b',
+  ORIGIN: '#f59e0b',
 };
