@@ -113,6 +113,17 @@ export class IdpAgent extends Construct {
       ),
     );
 
+    // Add AWS Marketplace subscription permissions (required for Marketplace models like Claude)
+    this.runtime.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'aws-marketplace:ViewSubscriptions',
+          'aws-marketplace:Subscribe',
+        ],
+        resources: ['*'],
+      }),
+    );
+
     // Add Bedrock model invocation permissions
     this.runtime.addToRolePolicy(
       new iam.PolicyStatement({
