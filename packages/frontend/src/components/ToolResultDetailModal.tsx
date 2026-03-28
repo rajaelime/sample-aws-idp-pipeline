@@ -90,10 +90,17 @@ export default function ToolResultDetailModal({
               </p>
               <div className="flex flex-wrap gap-1">
                 {sources.map((source, i) => {
-                  const segIdx = parseInt(
-                    source.segment_id.split('_').pop() || '0',
-                    10,
-                  );
+                  const idParts = source.segment_id.split('_');
+                  // qa_id format: wf_xxx_0001_00 (segment_index_qa_index)
+                  // segment_id format: wf_xxx_0001
+                  const hasQaIndex = idParts.length >= 4;
+                  const segIdx = hasQaIndex
+                    ? parseInt(idParts[idParts.length - 2], 10)
+                    : parseInt(idParts[idParts.length - 1] || '0', 10);
+                  const qaIdx = hasQaIndex
+                    ? parseInt(idParts[idParts.length - 1], 10)
+                    : 0;
+                  const qaLabel = qaIdx === 0 ? 'Analysis' : `Extra ${qaIdx}`;
                   const doc = documents.find(
                     (d) => d.document_id === source.document_id,
                   );
@@ -122,7 +129,9 @@ export default function ToolResultDetailModal({
                       <span className="max-w-28 truncate">
                         {doc?.name || 'Document'}
                       </span>
-                      <span className="opacity-50">p.{segIdx + 1}</span>
+                      <span className="opacity-50">
+                        p.{segIdx + 1} · {qaLabel}
+                      </span>
                     </button>
                   );
                 })}

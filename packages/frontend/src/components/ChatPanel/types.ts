@@ -115,6 +115,7 @@ export interface GraphSearchResult {
     type: string;
     description?: string;
   }>;
+  origin_qa_ids?: string[];
 }
 
 export interface WebSearchResult {

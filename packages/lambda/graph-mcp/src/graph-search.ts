@@ -72,22 +72,13 @@ Output format:
 export async function graphSearch(
   input: GraphSearchInput,
 ): Promise<GraphSearchAnswer> {
-  const {
-    project_id,
-    query,
-    document_id,
-    depth = 2,
-    limit = 10,
-    qa_ids,
-  } = input;
+  const { project_id, query, document_id, limit = 30, qa_ids } = input;
 
   // 1. Graph traversal to find related segments
   const result = await invokeGraphService('search_graph', {
     project_id,
     query,
     document_id,
-    depth,
-    entity_limit: 10,
     segment_limit: limit,
     qa_ids: qa_ids ?? [],
   });
@@ -104,6 +95,8 @@ export async function graphSearch(
     workflow_id: string;
     document_id: string;
     segment_index: number;
+    qa_id?: string;
+    qa_index?: number;
     match_type: string;
   }>;
 
@@ -111,6 +104,8 @@ export async function graphSearch(
     document_id: s.document_id,
     segment_id: s.id,
     segment_index: s.segment_index,
+    qa_id: s.qa_id,
+    qa_index: s.qa_index ?? 0,
     match_type: s.match_type,
     source: 'graph' as const,
   }));
@@ -148,5 +143,18 @@ export async function graphSearch(
   const response = await bedrockClient.send(command);
   const answer = response.output?.message?.content?.[0]?.text ?? '';
 
-  return { answer, sources, entities: entityList };
+  // Filter sources to only those cited in the answer
+  const citedSegmentIds = new Set(
+    [...answer.matchAll(/segment_id[=:]\s*([^\s,\])\n]+)/g)].map((m) =>
+      m[1].trim(),
+    ),
+  );
+  const citedSources = sources.filter((s) => citedSegmentIds.has(s.segment_id));
+
+  return {
+    answer,
+    sources: citedSources,
+    entities: entityList,
+    origin_qa_ids: qa_ids ?? [],
+  };
 }

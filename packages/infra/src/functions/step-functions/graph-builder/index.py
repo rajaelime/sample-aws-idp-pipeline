@@ -15,13 +15,15 @@ from shared.ddb_client import (
     get_document,
     StepName,
 )
-from shared.s3_analysis import get_all_segment_analyses, get_segment_analysis, get_s3_client, parse_s3_uri
+from shared.s3_analysis import get_all_segment_analyses, get_segment_analysis, get_segment_count_from_s3, get_s3_client, parse_s3_uri
 
 import boto3
 
 GRAPH_SERVICE_FUNCTION_NAME = os.environ.get('GRAPH_SERVICE_FUNCTION_NAME', '')
 GRAPH_BUILDER_MODEL_ID = os.environ.get('GRAPH_BUILDER_MODEL_ID', '')
+ENTITY_NORMALIZATION_MODEL_ID = os.environ.get('ENTITY_NORMALIZATION_MODEL_ID', '')
 PROMPTS = None
+NORMALIZATION_PROMPTS = None
 
 lambda_client = None
 
@@ -131,8 +133,19 @@ def create_analysis_nodes(segments, workflow_id, project_id, document_id):
     return analyses
 
 
+def get_normalization_prompts():
+    global NORMALIZATION_PROMPTS
+    if NORMALIZATION_PROMPTS is None:
+        path = os.path.join(
+            os.path.dirname(__file__), 'prompts', 'entity_normalization.yaml'
+        )
+        with open(path, 'r') as f:
+            NORMALIZATION_PROMPTS = yaml.safe_load(f)
+    return NORMALIZATION_PROMPTS
+
+
 def deduplicate_entities(all_entities):
-    """Deduplicate entities by normalized name."""
+    """Deduplicate entities by exact name match (case-insensitive)."""
     seen = {}
     for ent in all_entities:
         key = ent["name"].lower().strip()
@@ -143,6 +156,94 @@ def deduplicate_entities(all_entities):
         else:
             seen[key] = ent
     return list(seen.values())
+
+
+def normalize_entities(entities):
+    """Normalize entity names using LLM to merge semantic duplicates.
+
+    Takes deduplicated entities (exact-match already done) and uses LLM to
+    identify groups like "AWS Invoice" / "AWS 인보이스" that refer to the same concept.
+    Returns entities with canonical names and merged mentioned_in lists.
+    """
+    if not ENTITY_NORMALIZATION_MODEL_ID or len(entities) < 2:
+        return entities
+
+    # Build entity list with contexts for LLM
+    entity_entries = []
+    for ent in entities:
+        contexts = []
+        for mention in ent.get('mentioned_in', []):
+            ctx = mention.get('context', '')
+            if ctx and ctx not in contexts:
+                contexts.append(ctx)
+        entry = f'- {ent["name"]}'
+        if contexts:
+            entry += f' (context: {contexts[0]})'
+        entity_entries.append(entry)
+
+    entities_text = '\n'.join(entity_entries)
+
+    prompts = get_normalization_prompts()
+    system_prompt = prompts['system']
+    user_text = prompts['user'].format(entities=entities_text)
+
+    region = os.environ.get('AWS_REGION', 'us-east-1')
+    bedrock_model = BedrockModel(model_id=ENTITY_NORMALIZATION_MODEL_ID, region_name=region)
+    agent = Agent(model=bedrock_model, system_prompt=system_prompt)
+
+    try:
+        result = str(agent(user_text)).strip()
+        if result.startswith('```'):
+            result = result.split('```')[1]
+            if result.startswith('json'):
+                result = result[4:]
+        parsed = json.loads(result)
+        groups = parsed.get('groups', [])
+
+        if not groups:
+            return entities
+
+        # Build variant -> canonical mapping
+        variant_to_canonical = {}
+        for group in groups:
+            canonical = group.get('canonical', '')
+            for variant in group.get('variants', []):
+                if variant.lower().strip() != canonical.lower().strip():
+                    variant_to_canonical[variant.lower().strip()] = canonical
+
+        # Apply normalization: rename variants to canonical and merge mentioned_in
+        canonical_map = {}  # canonical_lower -> entity
+        normalized = []
+        for ent in entities:
+            key = ent['name'].lower().strip()
+            canonical_name = variant_to_canonical.get(key)
+            if canonical_name:
+                canonical_key = canonical_name.lower().strip()
+                if canonical_key in canonical_map:
+                    # Merge into existing canonical entity
+                    existing = canonical_map[canonical_key]
+                    for mention in ent.get('mentioned_in', []):
+                        existing.setdefault('mentioned_in', []).append(mention)
+                else:
+                    ent['name'] = canonical_name
+                    canonical_map[canonical_key] = ent
+                    normalized.append(ent)
+            else:
+                canonical_key = key
+                if canonical_key in canonical_map:
+                    existing = canonical_map[canonical_key]
+                    for mention in ent.get('mentioned_in', []):
+                        existing.setdefault('mentioned_in', []).append(mention)
+                else:
+                    canonical_map[canonical_key] = ent
+                    normalized.append(ent)
+
+        print(f'Entity normalization: {len(entities)} -> {len(normalized)} ({len(variant_to_canonical)} variants merged)')
+        return normalized
+
+    except (json.JSONDecodeError, Exception) as e:
+        print(f'Entity normalization failed, using deduplicated entities: {e}')
+        return entities
 
 
 def collect_entities_from_segments(segments, workflow_id):
@@ -250,6 +351,38 @@ def handle_extract_entities(event):
     unique_entities = deduplicate_entities(entities)
     print(f'Extracted {len(unique_entities)} entities, {len(relationships)} relationships')
 
+    # Normalize against existing entities from all segments in the document
+    if unique_entities and ENTITY_NORMALIZATION_MODEL_ID:
+        try:
+            segment_count = get_segment_count_from_s3(file_uri)
+            all_segments = get_all_segment_analyses(
+                file_uri, segment_count, fields=['graph_entities']
+            )
+            existing_entities = []
+            for seg in all_segments:
+                if seg.get('segment_index') == segment_index:
+                    continue
+                for ent in seg.get('graph_entities', []):
+                    existing_entities.append(ent)
+            existing_entities = deduplicate_entities(existing_entities)
+
+            combined = existing_entities + unique_entities
+            normalized = normalize_entities(combined)
+
+            # Keep only entities from the new segment
+            new_names = {e['name'].lower().strip() for e in unique_entities}
+            unique_entities = [
+                e for e in normalized
+                if e['name'].lower().strip() in new_names
+                or any(
+                    m.get('segment_index') == segment_index
+                    for m in e.get('mentioned_in', [])
+                )
+            ]
+            print(f'After normalization: {len(unique_entities)} entities for segment {segment_index}')
+        except Exception as e:
+            print(f'Normalization in extract_entities skipped: {e}')
+
     if unique_entities:
         send_batches_parallel(
             'add_entities', 'entities', unique_entities,
@@ -292,7 +425,7 @@ def handler(event, _context):
             'segment_count': segment_count,
         }
 
-    language = event.get('language') or get_project_language(project_id)
+    _language = event.get('language') or get_project_language(project_id)
 
     record_step_start(workflow_id, StepName.GRAPH_BUILDER)
 
@@ -339,7 +472,7 @@ def handler(event, _context):
                 })
         print(f'Analyses: {len(analyses)}')
 
-        # 4. Collect and deduplicate entities
+        # 4. Collect, deduplicate, and normalize entities
         all_entities, all_relationships = collect_entities_from_segments(
             segments_sorted, workflow_id
         )
@@ -348,6 +481,7 @@ def handler(event, _context):
             f'Entities: {len(all_entities)} -> {len(unique_entities)} unique, '
             f'Relationships: {len(all_relationships)}'
         )
+        unique_entities = normalize_entities(unique_entities)
 
         # 5. Save work items to S3 for Map processing
         bucket, s3_key = parse_s3_uri(file_uri)

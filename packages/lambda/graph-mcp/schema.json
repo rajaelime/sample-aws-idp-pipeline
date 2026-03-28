@@ -22,10 +22,6 @@
           "type": "string",
           "description": "Optional document ID to limit search scope"
         },
-        "depth": {
-          "type": "integer",
-          "description": "Graph traversal depth (default: 2)"
-        },
         "limit": {
           "type": "integer",
           "description": "Maximum number of results to return (default: 10)"

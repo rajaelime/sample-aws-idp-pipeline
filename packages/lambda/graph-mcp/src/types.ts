@@ -2,7 +2,6 @@ export interface GraphSearchInput {
   project_id: string;
   query: string;
   document_id?: string;
-  depth?: number;
   limit?: number;
   qa_ids?: string[];
 }
@@ -23,6 +22,7 @@ export interface GraphSearchAnswer {
     type: string;
     description?: string;
   }>;
+  origin_qa_ids?: string[];
 }
 
 export interface LinkDocumentsInput {

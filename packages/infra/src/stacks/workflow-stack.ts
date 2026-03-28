@@ -745,6 +745,7 @@ export class WorkflowStack extends Stack {
         ...commonLambdaProps.environment,
         GRAPH_SERVICE_FUNCTION_NAME: graphService.functionName,
         GRAPH_BUILDER_MODEL_ID: models.extractor,
+        ENTITY_NORMALIZATION_MODEL_ID: models.entityNormalizer,
       },
     });
 
