@@ -134,6 +134,8 @@ def build_single_payload(workflow_id, document_id, project_id, file_uri, ocr_mod
         'file_uri': file_uri,
         'ocr_model': ocr_model,
         'ocr_options': ocr_options or {},
+        'chunk_index': 0,
+        'total_chunks': 1,
     }]
 
 
