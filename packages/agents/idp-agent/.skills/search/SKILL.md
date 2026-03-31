@@ -1,63 +1,48 @@
 ---
-name: search
-description: "Search strategy guide for finding information from any source."
-whenToUse: "Use for any user question that requires information lookup — document content questions, factual queries, explanations, summaries, comparisons, or web search requests. When in doubt, activate this skill."
+name: searching
+description: "Search documents and knowledge graph for information. Combines hybrid search, graph traversal, and keyword graph lookup. Use when user asks questions, requests information lookup, needs explanations, summaries, or comparisons from uploaded documents."
+whenToUse: "Any user question requiring information lookup. When in doubt, use this skill."
 ---
 
 # Search Skill
 
-## Core Rule
+Document search is always the first priority. Web search is a fallback only after document search returns insufficient results.
 
-Always perform document search first. Web search is only a supplementary fallback after document search returns insufficient results.
+Do NOT mention internal search strategy or tool selection reasoning to the user. Just search and answer.
 
-## Search Strategy
+## Document Search
 
-### Step 1: Document Search (Required)
-- For every query, start by searching uploaded documents using `search___summarize`.
-- Use clear, specific search queries. If one query doesn't return results, try alternative keywords or phrasings before giving up.
-- When the user's question is broad, break it into multiple focused search queries.
+For most questions, search documents first:
+1. `search___summarize` with the query
+2. Extract `qa_ids` from the `sources` array in the result
+3. `search___graph_traverse` with the same query + extracted `qa_ids`
+4. Combine results and answer with citations
 
-### Step 2: Graph Search for Related QA Pairs
-- After `search___summarize` returns results, call `graph___graph_search` with the same query AND the `qa_ids` from the search results.
-- Extract `qa_ids` from the `sources` array in the search result (each source has a `qa_id` field).
-- Graph search traverses entity connections to find related QA pairs that keyword/vector search may have missed (e.g., searching "Big River" finds QA pairs about "Pipeline" connected via shared entities).
-- Even if document search returned good results, graph search may reveal additional related QA pairs from other documents.
+## Keyword Graph Search
 
-### Step 3: Evaluate Results
-- Combine results from both document search and graph search.
-- If results are sufficient: answer based on those results with citations. Do not proceed to web search.
-- If both searches return no results or irrelevant results: inform the user that the information was not found in their documents, then proceed to web search as a supplement.
+When the user asks about a specific concept or keyword:
+1. `search___graph_keyword` with the keyword/concept
+2. Answer based on connected pages found
 
-### Step 4: Web Search (Fallback Only)
-- Only use web search after document search has been performed and returned insufficient results.
-- Use `search` (DuckDuckGo) for web queries when documents don't have the answer.
-- Use `fetch_content` to retrieve full page content from promising search results.
-- Clearly distinguish between information from the user's documents vs. the web.
+Can be used alone or combined with document search for comprehensive results.
 
-## Web Search Guidelines
+## Web Search (fallback only)
 
-When performing web searches:
-1. Search with max_results of 10 to get diverse sources
-2. Call `fetch_content` on at least 3 different URLs
-3. If a website returns an error (403, timeout, etc.), try another URL until you have successfully fetched 3+ pages
-4. Synthesize information from all fetched sources before responding
-5. Always cite the sources you used with their URLs
+Only after document search returned insufficient results:
+1. `search` (DuckDuckGo) for web queries
+2. `fetch_content` on 3+ URLs from results
+3. Clearly distinguish document vs. web sources in the answer
 
-## Search Tools
+## Tools
 
-- `search___summarize`: Search uploaded documents. Use this first for any query.
-- `graph___graph_search`: Find related QA pairs via knowledge graph traversal. Use after `search___summarize`. Pass `qa_ids` from search results as starting points.
-- `graph___link_documents`: Link two documents with a RELATED_TO relationship. Requires `project_id`, `document_id_1`, `document_id_2`. Optional: `reason`, `label`.
-- `graph___unlink_documents`: Remove the RELATED_TO relationship between two documents. Requires `project_id`, `document_id_1`, `document_id_2`.
-- `search`: Web search via DuckDuckGo. Only use as fallback after document search.
-- `fetch_content`: Fetch full content from a web URL. Use after web search to get detailed information.
+- `search___summarize` — hybrid search on uploaded documents
+- `search___graph_traverse` — find related pages via entity connections (pass `qa_ids` from summarize results)
+- `search___graph_keyword` — find pages by keyword similarity in the knowledge graph
+- `search` — web search via DuckDuckGo (fallback)
+- `fetch_content` — fetch full content from a web URL
 
 ## Citations
 
-- When citing document search results, reference the source document name and relevant section.
-- When citing web sources, include the URL.
-- Use inline citations naturally within the text, not just a list at the end.
+Use inline citations naturally within the text. For document results, reference the source document and section. For web results, include the URL.
 
-## What NOT to Do
-
-- Do not fabricate information or citations that don't exist in search results.
+Do not fabricate information or citations that don't exist in search results.

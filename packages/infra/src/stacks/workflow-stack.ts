@@ -694,21 +694,60 @@ export class WorkflowStack extends Stack {
     // Grant segment-analyzer read access to agent storage bucket (for analysis prompts)
     agentStorageBucket.grantRead(segmentAnalyzer);
 
+    // Analysis Finalizer: SQS sending only
     const analysisFinalizer = new lambda.Function(this, 'AnalysisFinalizer', {
       ...commonLambdaProps,
       functionName: 'idp-v2-analysis-finalizer',
       handler: 'index.handler',
-      timeout: Duration.minutes(10),
-      memorySize: 1024,
+      timeout: Duration.minutes(5),
+      memorySize: 512,
       code: lambda.Code.fromAsset(
         path.join(__dirname, '../functions/step-functions/analysis-finalizer'),
+      ),
+      layers: [sharedLayer],
+      environment: {
+        ...commonLambdaProps.environment,
+        LANCEDB_WRITE_QUEUE_URL: lancedbWriteQueue.queueUrl,
+      },
+    });
+
+    // Page Description Generator
+    const pageDescriptionGenerator = new lambda.Function(
+      this,
+      'PageDescriptionGenerator',
+      {
+        ...commonLambdaProps,
+        functionName: 'idp-v2-page-description-generator',
+        handler: 'index.handler',
+        timeout: Duration.minutes(5),
+        memorySize: 512,
+        code: lambda.Code.fromAsset(
+          path.join(
+            __dirname,
+            '../functions/step-functions/page-description-generator',
+          ),
+        ),
+        layers: [strandsLayer, sharedLayer],
+        environment: {
+          ...commonLambdaProps.environment,
+          PAGE_DESCRIPTION_MODEL_ID: models.describer,
+        },
+      },
+    );
+
+    // Entity Extractor
+    const entityExtractor = new lambda.Function(this, 'EntityExtractor', {
+      ...commonLambdaProps,
+      functionName: 'idp-v2-entity-extractor',
+      handler: 'index.handler',
+      timeout: Duration.minutes(5),
+      memorySize: 512,
+      code: lambda.Code.fromAsset(
+        path.join(__dirname, '../functions/step-functions/entity-extractor'),
       ),
       layers: [strandsLayer, sharedLayer],
       environment: {
         ...commonLambdaProps.environment,
-        LANCEDB_WRITE_QUEUE_URL: lancedbWriteQueue.queueUrl,
-        LANCEDB_FUNCTION_NAME: lancedbService.functionName,
-        PAGE_DESCRIPTION_MODEL_ID: models.describer,
         ENTITY_EXTRACTION_MODEL_ID: models.extractor,
       },
     });
@@ -744,13 +783,14 @@ export class WorkflowStack extends Stack {
       environment: {
         ...commonLambdaProps.environment,
         GRAPH_SERVICE_FUNCTION_NAME: graphService.functionName,
-        GRAPH_BUILDER_MODEL_ID: models.extractor,
         ENTITY_NORMALIZATION_MODEL_ID: models.entityNormalizer,
+        LANCEDB_FUNCTION_NAME: lancedbService.functionName,
       },
     });
 
-    // Grant GraphService invoke to GraphBuilder
+    // Grant GraphService and LanceDB invoke to GraphBuilder
     graphService.grantInvoke(graphBuilder);
+    lancedbService.grantInvoke(graphBuilder);
 
     // Graph Batch Sender (sends graph data to Neptune via graph-service, called by Map)
     const graphBatchSender = new lambda.Function(this, 'GraphBatchSender', {
@@ -860,14 +900,14 @@ export class WorkflowStack extends Stack {
         BEDROCK_MODEL_ID: models.analysis,
         LANCEDB_FUNCTION_NAME: lancedbService.functionName,
         GRAPH_SERVICE_FUNCTION_NAME: graphService.functionName,
-        GRAPH_BUILDER_FUNCTION_NAME: graphBuilder.functionName,
+        ENTITY_EXTRACTOR_FUNCTION_NAME: entityExtractor.functionName,
       },
     });
 
     // Grant LanceDB invoke to QA Regenerator
     lancedbService.grantInvoke(qaRegenerator);
     graphService.grantInvoke(qaRegenerator);
-    graphBuilder.grantInvoke(qaRegenerator);
+    entityExtractor.grantInvoke(qaRegenerator);
 
     // SQS trigger for LanceDB Writer
     lancedbWriter.addEventSourceMapping('LanceDBWriteQueueTrigger', {
@@ -1087,10 +1127,43 @@ export class WorkflowStack extends Stack {
       {
         lambdaFunction: analysisFinalizer,
         outputPath: '$.Payload',
-        comment:
-          'Persist segment analysis to DDB, send to LanceDB writer SQS for vector indexing, and notify progress via WebSocket',
+        comment: 'Send QA pairs to LanceDB write queue for vector indexing',
       },
     );
+
+    const pageDescriptionTask = new tasks.LambdaInvoke(
+      this,
+      'GeneratePageDescription',
+      {
+        lambdaFunction: pageDescriptionGenerator,
+        outputPath: '$.Payload',
+        comment: 'Generate searchable page description using LLM',
+      },
+    );
+
+    const entityExtractorTask = new tasks.LambdaInvoke(
+      this,
+      'ExtractEntities',
+      {
+        lambdaFunction: entityExtractor,
+        outputPath: '$.Payload',
+        comment: 'Extract knowledge graph entities from segment analysis',
+      },
+    );
+
+    // Parallel execution of finalizer tasks
+    const parallelFinalizerTasks = new sfn.Parallel(
+      this,
+      'ParallelFinalizerTasks',
+      {
+        comment:
+          'Run SQS sending, page description generation, and entity extraction in parallel',
+        resultPath: sfn.JsonPath.DISCARD,
+      },
+    );
+    parallelFinalizerTasks.branch(analysisFinalizerTask);
+    parallelFinalizerTasks.branch(pageDescriptionTask);
+    parallelFinalizerTasks.branch(entityExtractorTask);
 
     const documentSummarizerTask = new tasks.LambdaInvoke(
       this,
@@ -1204,9 +1277,8 @@ export class WorkflowStack extends Stack {
     // Segment Processing
     // ========================================
 
-    // Segment processing chain: Analyze → Finalize
-    // For re-analysis, pass is_reanalysis flag to AnalysisFinalizer
-    const segmentProcessing = segmentAnalyzerTask.next(analysisFinalizerTask);
+    // Segment processing chain: Analyze → Parallel [Finalize, PageDesc, EntityExtract]
+    const segmentProcessing = segmentAnalyzerTask.next(parallelFinalizerTasks);
 
     // Distributed Map for parallel segment processing
     const parallelSegmentProcessing = new sfn.DistributedMap(
@@ -1627,6 +1699,8 @@ export class WorkflowStack extends Stack {
       reanalysisPrep,
       segmentAnalyzer,
       analysisFinalizer,
+      pageDescriptionGenerator,
+      entityExtractor,
       documentSummarizer,
       graphBuilder,
       graphBatchSender,
@@ -1651,7 +1725,6 @@ export class WorkflowStack extends Stack {
     // Grant invoke permissions for LanceDB service
     lancedbService.grantInvoke(lancedbWriter);
     lancedbService.grantInvoke(documentSummarizer);
-    lancedbService.grantInvoke(analysisFinalizer);
     lancedbService.grantInvoke(reanalysisPrep);
     graphService.grantInvoke(reanalysisPrep);
 

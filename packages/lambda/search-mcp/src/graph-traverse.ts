@@ -1,8 +1,19 @@
 import { ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
-import { invokeGraphService, invokeLanceDB, bedrockClient } from './clients.js';
-import type { GraphSearchInput, GraphSearchAnswer } from './types.js';
+import {
+  invokeGraphService,
+  invokeLanceDB,
+  bedrockClient,
+} from './lib/clients.js';
 
 const HAIKU_MODEL_ID = 'global.anthropic.claude-haiku-4-5-20251001-v1:0';
+
+export interface GraphTraverseInput {
+  project_id: string;
+  query: string;
+  document_id?: string;
+  limit?: number;
+  qa_ids?: string[];
+}
 
 interface SegmentContent {
   segment_id: string;
@@ -16,7 +27,6 @@ interface SegmentContent {
 
 interface EntityInfo {
   name: string;
-  type: string;
 }
 
 function buildPrompt(
@@ -31,9 +41,7 @@ function buildPrompt(
     )
     .join('\n\n');
 
-  const entitiesText = entities
-    .map((e) => `- ${e.name} (${e.type})`)
-    .join('\n');
+  const entitiesText = entities.map((e) => `- ${e.name}`).join('\n');
 
   return `You are an assistant that organizes document search results found through knowledge graph traversal.
 
@@ -69,12 +77,28 @@ Output format:
 (Information based on original content)`;
 }
 
-export async function graphSearch(
-  input: GraphSearchInput,
-): Promise<GraphSearchAnswer> {
+export interface GraphTraverseAnswer {
+  answer?: string;
+  sources: Array<{
+    document_id: string;
+    segment_id: string;
+    qa_id?: string;
+    segment_index: number;
+    qa_index?: number;
+    match_type: string;
+    source: 'graph';
+  }>;
+  entities: Array<{
+    name: string;
+  }>;
+  origin_qa_ids?: string[];
+}
+
+export async function handler(
+  input: GraphTraverseInput,
+): Promise<GraphTraverseAnswer> {
   const { project_id, query, document_id, limit = 30, qa_ids } = input;
 
-  // 1. Graph traversal to find related segments
   const result = await invokeGraphService('search_graph', {
     project_id,
     query,
@@ -86,8 +110,6 @@ export async function graphSearch(
   const entities = (result.entities ?? []) as Array<{
     id: string;
     name: string;
-    type: string;
-    description?: string;
   }>;
 
   const segments = (result.segments ?? []) as Array<{
@@ -110,16 +132,11 @@ export async function graphSearch(
     source: 'graph' as const,
   }));
 
-  const entityList = entities.map((e) => ({
-    name: e.name,
-    type: e.type,
-    description: e.description,
-  }));
+  const entityList = entities.map((e) => ({ name: e.name }));
 
-  // 2. Fetch segment content from LanceDB
   const traversalSegmentIds = segments.map((s) => s.id);
   if (traversalSegmentIds.length === 0) {
-    return { sources, entities: entityList };
+    return { sources, entities: entityList, origin_qa_ids: qa_ids ?? [] };
   }
 
   const lanceResult = await invokeLanceDB('get_by_segment_ids', {
@@ -129,10 +146,9 @@ export async function graphSearch(
 
   const segmentContents = (lanceResult.segments ?? []) as SegmentContent[];
   if (segmentContents.length === 0) {
-    return { sources, entities: entityList };
+    return { sources, entities: entityList, origin_qa_ids: qa_ids ?? [] };
   }
 
-  // 3. Summarize with Haiku
   const prompt = buildPrompt(query, segmentContents, entityList);
   const command = new ConverseCommand({
     modelId: HAIKU_MODEL_ID,
@@ -143,7 +159,6 @@ export async function graphSearch(
   const response = await bedrockClient.send(command);
   const answer = response.output?.message?.content?.[0]?.text ?? '';
 
-  // Filter sources to only those cited in the answer
   const citedSegmentIds = new Set(
     [...answer.matchAll(/segment_id[=:]\s*([^\s,\])\n]+)/g)].map((m) =>
       m[1].trim(),

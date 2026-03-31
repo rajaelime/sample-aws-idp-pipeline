@@ -34,3 +34,33 @@ export async function invokeLanceDB(
 
   return payload;
 }
+
+export async function invokeGraphService(
+  action: string,
+  params: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const command = new InvokeCommand({
+    FunctionName: process.env.GRAPH_SERVICE_FUNCTION_ARN,
+    InvocationType: 'RequestResponse',
+    Payload: JSON.stringify({ action, params }),
+  });
+
+  const response = await lambdaClient.send(command);
+
+  if (response.FunctionError) {
+    const errorPayload = response.Payload
+      ? new TextDecoder().decode(response.Payload)
+      : 'Unknown error';
+    throw new Error(`GraphService Lambda error: ${errorPayload}`);
+  }
+
+  const payload = response.Payload
+    ? JSON.parse(new TextDecoder().decode(response.Payload))
+    : {};
+
+  if (payload.statusCode !== 200) {
+    throw new Error(payload.error ?? 'GraphService Lambda error');
+  }
+
+  return payload;
+}

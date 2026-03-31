@@ -244,6 +244,8 @@ def action_add_entities(params: dict) -> dict:
         {
             'eid': entity_id(project_id, ent['name']),
             'name': ent['name'],
+            'etype': ent.get('entity_type', 'PRIMARY'),
+            'anchor': ent.get('anchor', ''),
         }
         for ent in entities
     ]
@@ -254,7 +256,8 @@ def action_add_entities(params: dict) -> dict:
         run_query(
             'UNWIND $items AS item '
             'MERGE (e:Entity {`~id`: item.eid}) '
-            'SET e.id = item.eid, e.project_id = $pid, e.name = item.name',
+            'SET e.id = item.eid, e.project_id = $pid, e.name = item.name, '
+            'e.entity_type = item.etype, e.anchor = item.anchor',
             {'items': batch, 'pid': project_id},
         )
 
@@ -262,6 +265,8 @@ def action_add_entities(params: dict) -> dict:
     mention_items = []
     for ent in entities:
         eid = entity_id(project_id, ent['name'])
+        etype = ent.get('entity_type', 'PRIMARY')
+        anchor = ent.get('anchor', '')
         for mention in ent.get('mentioned_in', []):
             workflow_id = mention.get('workflow_id', '')
             segment_index = mention.get('segment_index', 0)
@@ -271,6 +276,8 @@ def action_add_entities(params: dict) -> dict:
                 'aid': f'{workflow_id}_{segment_index:04d}_{qa_index:02d}',
                 'conf': mention.get('confidence', 1.0),
                 'ctx': mention.get('context', ''),
+                'etype': etype,
+                'anchor': anchor,
             })
 
     for start in range(0, len(mention_items), batch_size):
@@ -279,7 +286,8 @@ def action_add_entities(params: dict) -> dict:
             'UNWIND $items AS item '
             'MATCH (e:Entity {`~id`: item.eid}), (a:Analysis {`~id`: item.aid}) '
             'MERGE (e)-[r:MENTIONED_IN]->(a) '
-            'SET r.confidence = item.conf, r.context = item.ctx',
+            'SET r.confidence = item.conf, r.context = item.ctx, '
+            'r.entity_type = item.etype, r.anchor = item.anchor',
             {'items': batch},
         )
 
@@ -956,7 +964,7 @@ def _build_search_graph(document_id, project_id, search_term):
     matched = run_query(
         'MATCH (d:Document {`~id`: $did})<-[:BELONGS_TO]-(s:Segment)<-[:BELONGS_TO]-(a:Analysis)'
         '<-[:MENTIONED_IN]-(e:Entity) '
-        'WHERE toLower(e.name) CONTAINS toLower($term) '
+        'WHERE toLower(e.name) = toLower($term) '
         'RETURN DISTINCT e.`~id` AS id, e.name AS name',
         p, _retries=5,
     )
@@ -988,21 +996,16 @@ def _build_search_graph(document_id, project_id, search_term):
         {'sids': seg_ids}, _retries=5,
     )
 
-    # Get all entities on those segments
-    ent_results = run_query(
-        'MATCH (s:Segment)<-[:BELONGS_TO]-(a:Analysis)<-[:MENTIONED_IN]-(e:Entity) '
-        'WHERE s.id IN $sids '
-        'RETURN DISTINCT e.`~id` AS id, e.name AS name',
-        {'sids': seg_ids}, _retries=5,
-    )
+    # Only return the matched entities (not all entities on found segments)
+    ent_results = [{'id': e['id'], 'name': e['name']} for e in matched]
 
-    # Mentions
+    # Mentions: only edges from matched entities
     mention_results = run_query(
         'MATCH (s:Segment)<-[:BELONGS_TO]-(a:Analysis)<-[r:MENTIONED_IN]-(e:Entity) '
-        'WHERE s.id IN $sids '
+        'WHERE s.id IN $sids AND e.`~id` IN $eids '
         'RETURN e.`~id` AS source, a.id AS target, '
         'r.confidence AS confidence, r.context AS context',
-        {'sids': seg_ids}, _retries=5,
+        {'sids': seg_ids, 'eids': matched_ids}, _retries=5,
     )
 
     # NEXT edges between found segments
@@ -1323,7 +1326,7 @@ def handler(event, _context):
         'delete_analysis': action_delete_analysis,
         'delete_by_workflow': action_delete_by_workflow,
         'clear_all': action_clear_all,
-        'raw_query': lambda params: {'success': True, 'results': run_query(params['query'])},
+        'raw_query': lambda params: {'success': True, 'results': run_query(params['query'], params.get('parameters'))},
         # Read
         'search_graph': action_search_graph,
         'traverse': action_traverse,

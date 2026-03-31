@@ -234,7 +234,7 @@ export default function WorkflowDetailModal({
   const totalSegs = graphTotalSegments || workflow.total_segments || 0;
   const [graphPageRange, setGraphPageRange] = useState<[number, number]>([
     1,
-    Math.min(10, Math.max(1, totalSegs)),
+    Math.min(100, Math.max(1, totalSegs)),
   ]);
   const [graphSpecificPage, setGraphSpecificPage] = useState(1);
   // Clamp range when totalSegments becomes known
@@ -245,7 +245,7 @@ export default function WorkflowDetailModal({
   }, [totalSegs]);
   const [graphSearchTerm, setGraphSearchTerm] = useState('');
   const [graphHiddenLinkTypes, setGraphHiddenLinkTypes] = useState<Set<string>>(
-    new Set(),
+    new Set(['NEXT']),
   );
   const [graphShowIncoming, setGraphShowIncoming] = useState(true);
   const [graphShowOutgoing, setGraphShowOutgoing] = useState(true);

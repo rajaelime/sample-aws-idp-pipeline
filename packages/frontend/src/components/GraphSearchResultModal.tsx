@@ -297,7 +297,26 @@ export default function GraphSearchResultModal({
                 </div>
               )}
 
-              {/* Entity chips (collapsible) */}
+              {/* Keywords (query input) */}
+              {data.keywords && data.keywords.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5">
+                    {t('chat.searchKeyword', 'Keyword')}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {data.keywords.map((kw, i) => (
+                      <span
+                        key={i}
+                        className="text-[10px] font-medium px-2 py-1 rounded-full border border-blue-300 dark:border-blue-500/40 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                      >
+                        {kw}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Connected entities (collapsible) */}
               {data.entities?.length > 0 && (
                 <div className="mb-4">
                   <button
@@ -336,29 +355,38 @@ export default function GraphSearchResultModal({
                 </ReactMarkdown>
               </div>
 
-              {/* Sources list */}
-              {data.sources?.length > 0 && (
-                <div className="mt-4 pt-3 border-t border-slate-200 dark:border-blue-500/20">
-                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">
-                    {t(
-                      'chat.graphSourcesFound',
-                      '{{count}} additional pages discovered',
-                      { count: data.sources.length },
-                    )}
-                  </p>
-                  <div className="space-y-1">
-                    {data.sources.map((source, i) => (
-                      <div
-                        key={i}
-                        className="text-[10px] text-slate-400 dark:text-slate-500 font-mono"
-                      >
-                        Page {source.segment_index + 1} &middot;{' '}
-                        {source.match_type ?? 'graph'}
+              {/* Sources list (deduplicated by page) */}
+              {data.sources?.length > 0 &&
+                (() => {
+                  const seen = new Set<number>();
+                  const uniqueSources = data.sources.filter((s) => {
+                    if (seen.has(s.segment_index)) return false;
+                    seen.add(s.segment_index);
+                    return true;
+                  });
+                  return (
+                    <div className="mt-4 pt-3 border-t border-slate-200 dark:border-blue-500/20">
+                      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">
+                        {t(
+                          'chat.graphSourcesFound',
+                          '{{count}} additional pages discovered',
+                          { count: uniqueSources.length },
+                        )}
+                      </p>
+                      <div className="space-y-1">
+                        {uniqueSources.map((source, i) => (
+                          <div
+                            key={i}
+                            className="text-[10px] text-slate-400 dark:text-slate-500 font-mono"
+                          >
+                            Page {source.segment_index + 1} &middot;{' '}
+                            {source.match_type ?? 'graph'}
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                    </div>
+                  );
+                })()}
             </div>
           )}
 
