@@ -164,9 +164,7 @@ export async function handler(
       m[1].trim(),
     ),
   );
-  const citedSources = sources.filter((s) =>
-    citedSegmentIds.has(s.segment_id),
-  );
+  const citedSources = sources.filter((s) => citedSegmentIds.has(s.segment_id));
 
   return {
     answer,

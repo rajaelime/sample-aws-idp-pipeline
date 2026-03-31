@@ -1147,8 +1147,7 @@ export class WorkflowStack extends Stack {
       {
         lambdaFunction: entityExtractor,
         outputPath: '$.Payload',
-        comment:
-          'Extract knowledge graph entities from segment analysis',
+        comment: 'Extract knowledge graph entities from segment analysis',
       },
     );
 
@@ -1279,8 +1278,7 @@ export class WorkflowStack extends Stack {
     // ========================================
 
     // Segment processing chain: Analyze → Parallel [Finalize, PageDesc, EntityExtract]
-    const segmentProcessing =
-      segmentAnalyzerTask.next(parallelFinalizerTasks);
+    const segmentProcessing = segmentAnalyzerTask.next(parallelFinalizerTasks);
 
     // Distributed Map for parallel segment processing
     const parallelSegmentProcessing = new sfn.DistributedMap(

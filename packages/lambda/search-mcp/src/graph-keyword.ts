@@ -64,7 +64,10 @@ export async function handler(
     name: string;
     score: number;
   }>;
-  console.log(`[graph_keyword] keywords found: ${results.length}`, results.map((r) => `${r.name} (${r.score})`));
+  console.log(
+    `[graph_keyword] keywords found: ${results.length}`,
+    results.map((r) => `${r.name} (${r.score})`),
+  );
 
   const keywordNames = [...new Set(results.map((r) => r.name))];
   if (keywordNames.length === 0) {
@@ -74,7 +77,10 @@ export async function handler(
 
   // 2. Hash entity names to Neptune ~id and query for connected qa_ids
   const entityIds = keywordNames.map((name) => entityIdHash(project_id, name));
-  console.log(`[graph_keyword] entity hashes:`, keywordNames.map((n, i) => `${n} -> ${entityIds[i]}`));
+  console.log(
+    `[graph_keyword] entity hashes:`,
+    keywordNames.map((n, i) => `${n} -> ${entityIds[i]}`),
+  );
 
   const graphResult = await invokeGraphService('raw_query', {
     query:
@@ -87,7 +93,10 @@ export async function handler(
   const qaIds = ((graphResult.results ?? []) as Array<{ qa_id: string }>).map(
     (r) => r.qa_id,
   );
-  console.log(`[graph_keyword] qa_ids found: ${qaIds.length}`, qaIds.slice(0, 10));
+  console.log(
+    `[graph_keyword] qa_ids found: ${qaIds.length}`,
+    qaIds.slice(0, 10),
+  );
 
   if (qaIds.length === 0) {
     console.log('[graph_keyword] no qa_ids found, returning keywords only');
@@ -96,7 +105,9 @@ export async function handler(
   }
 
   // 3. Fetch content from LanceDB by qa_ids
-  console.log(`[graph_keyword] fetching ${Math.min(qaIds.length, limit)} qa_ids from LanceDB`);
+  console.log(
+    `[graph_keyword] fetching ${Math.min(qaIds.length, limit)} qa_ids from LanceDB`,
+  );
   const lanceResult = await invokeLanceDB('get_by_qa_ids', {
     project_id,
     qa_ids: qaIds.slice(0, limit),
@@ -181,9 +192,7 @@ Output format:
       m[1].trim(),
     ),
   );
-  const citedSources = sources.filter((s) =>
-    citedSegmentIds.has(s.segment_id),
-  );
+  const citedSources = sources.filter((s) => citedSegmentIds.has(s.segment_id));
 
   return {
     answer,
