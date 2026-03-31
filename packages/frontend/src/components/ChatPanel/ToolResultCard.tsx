@@ -172,7 +172,7 @@ export default function ToolResultCard({
 
     return (
       <div className="flex items-center gap-1.5 py-0.5">
-        <Check className="w-3.5 h-3.5 text-indigo-400 dark:text-indigo-500 flex-shrink-0" />
+        <Icon className="w-3.5 h-3.5 text-indigo-400 dark:text-indigo-500 flex-shrink-0" />
         <span className="text-sm text-indigo-400 dark:text-indigo-500">
           {displayName} -{' '}
           {t('chat.graphNoAdditionalSources', 'No additional pages discovered')}

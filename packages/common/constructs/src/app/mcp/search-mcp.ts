@@ -29,6 +29,11 @@ export class SearchMcp extends Construct {
       SSM_KEYS.LANCE_SERVICE_FUNCTION_ARN,
     );
 
+    const graphServiceFunctionArn = StringParameter.valueForStringParameter(
+      this,
+      SSM_KEYS.GRAPH_SERVICE_FUNCTION_ARN,
+    );
+
     this.function = new NodejsFunction(this, 'Function', {
       entry: path.resolve(
         process.cwd(),
@@ -41,6 +46,7 @@ export class SearchMcp extends Construct {
       memorySize: 256,
       environment: {
         LANCEDB_FUNCTION_ARN: lancedbFunctionArn,
+        GRAPH_SERVICE_FUNCTION_ARN: graphServiceFunctionArn,
         DOCUMENT_STORAGE_BUCKET: documentStorageBucketName,
         SUMMARIZE_MODEL_ID: 'global.anthropic.claude-haiku-4-5-20251001-v1:0',
         RERANK_MODEL_ID: 'cohere.rerank-v3-5:0',
@@ -52,7 +58,7 @@ export class SearchMcp extends Construct {
     this.function.addToRolePolicy(
       new PolicyStatement({
         actions: ['lambda:InvokeFunction'],
-        resources: [lancedbFunctionArn],
+        resources: [lancedbFunctionArn, graphServiceFunctionArn],
       }),
     );
 

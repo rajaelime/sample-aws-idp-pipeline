@@ -378,7 +378,9 @@ export function useChatSession({ projectId }: UseChatSessionOptions) {
                   }
 
                   let displayContent = textContent;
-                  const isGraphResult = toolName?.includes('graph_search');
+                  const isGraphResult =
+                    toolName?.includes('graph_traverse') ||
+                    toolName?.includes('graph_keyword');
                   if (sources && !isGraphResult) {
                     try {
                       const parsed = JSON.parse(textContent);
@@ -733,7 +735,9 @@ export function useChatSession({ projectId }: UseChatSessionOptions) {
         if (!textContent && imageAttachments.length === 0) break;
 
         let displayContent: string | undefined;
-        const isGraphTool = capturedToolName?.includes('graph_search');
+        const isGraphTool =
+          capturedToolName?.includes('graph_traverse') ||
+          capturedToolName?.includes('graph_keyword');
         if (toolResultType === 'text' && sources && !isGraphTool) {
           try {
             const parsed = JSON.parse(textContent);

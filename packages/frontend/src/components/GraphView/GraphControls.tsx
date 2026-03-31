@@ -19,7 +19,7 @@ interface GraphControlsProps {
   loading?: boolean;
 }
 
-const MAX_RANGE = 10;
+const MAX_RANGE = 100;
 
 export default function GraphControls({
   mode,

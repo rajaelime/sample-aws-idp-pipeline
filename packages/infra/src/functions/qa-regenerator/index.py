@@ -16,7 +16,7 @@ from shared.s3_analysis import get_segment_analysis, save_segment_analysis
 BEDROCK_MODEL_ID = os.environ['BEDROCK_MODEL_ID']
 LANCEDB_FUNCTION_NAME = os.environ.get('LANCEDB_FUNCTION_NAME', 'idp-v2-lance-service')
 GRAPH_SERVICE_FUNCTION_NAME = os.environ.get('GRAPH_SERVICE_FUNCTION_NAME', '')
-GRAPH_BUILDER_FUNCTION_NAME = os.environ.get('GRAPH_BUILDER_FUNCTION_NAME', '')
+ENTITY_EXTRACTOR_FUNCTION_NAME = os.environ.get('ENTITY_EXTRACTOR_FUNCTION_NAME', '')
 
 s3_client = None
 bedrock_client = None
@@ -176,20 +176,20 @@ def invoke_lancedb(action: str, params: dict) -> dict:
     return json.loads(payload)
 
 
-def invoke_graph_builder(params: dict) -> dict:
-    if not GRAPH_BUILDER_FUNCTION_NAME:
+def invoke_entity_extractor(params: dict) -> dict:
+    if not ENTITY_EXTRACTOR_FUNCTION_NAME:
         return {}
     try:
         client = get_lambda_client()
         response = client.invoke(
-            FunctionName=GRAPH_BUILDER_FUNCTION_NAME,
+            FunctionName=ENTITY_EXTRACTOR_FUNCTION_NAME,
             InvocationType='Event',
-            Payload=json.dumps({**params, 'mode': 'extract_entities'}),
+            Payload=json.dumps(params),
         )
-        print(f'Graph builder invoked (async): status={response.get("StatusCode")}')
+        print(f'Entity extractor invoked (async): status={response.get("StatusCode")}')
         return {'success': True}
     except Exception as e:
-        print(f'Graph builder invoke failed: {e}')
+        print(f'Entity extractor invoke failed: {e}')
         return {}
 
 
@@ -434,8 +434,7 @@ def handler(event, _context):
     print(f'Graph analysis node created: seg={segment_index}, qa={qa_index}')
 
     # Re-extract entities for this segment (async)
-    invoke_graph_builder({
-        'project_id': project_id,
+    invoke_entity_extractor({
         'workflow_id': workflow_id,
         'file_uri': file_uri,
         'segment_index': segment_index,
