@@ -2,6 +2,7 @@ from contextlib import ExitStack, contextmanager
 from venv import create
 
 import boto3
+from botocore.config import Config as BotocoreConfig
 from mcp import StdioServerParameters, stdio_client
 from strands import Agent
 from strands.hooks.registry import HookProvider
@@ -129,6 +130,7 @@ def get_agent(
     bedrock_model = BedrockModel(
         model_id=config.bedrock_model_id,
         region_name=config.aws_region,
+        boto_client_config=BotocoreConfig(read_timeout=600),
     )
 
     hooks: list[HookProvider] = [
