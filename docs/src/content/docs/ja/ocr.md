@@ -1,5 +1,5 @@
 ---
-title: "PaddleOCR on SageMaker"
+title: "OCR on SageMaker"
 description: "SageMaker非同期推論エンドポイントベースのPaddleOCR処理パイプライン"
 ---
 

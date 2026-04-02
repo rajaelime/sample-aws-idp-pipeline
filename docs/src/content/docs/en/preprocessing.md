@@ -64,7 +64,7 @@ Extracts text from PDFs and images. Supports dual backends: Lambda (CPU) or Sage
 
 OCR language is automatically mapped based on the project language setting (Korean → `korean`, Japanese → `japan`, etc.).
 
-> For details, see [PaddleOCR on SageMaker](./ocr.md).
+> For details, see [OCR on SageMaker](./ocr.md).
 
 ### Bedrock Data Automation (BDA)
 

@@ -1,5 +1,5 @@
 ---
-title: "PaddleOCR on SageMaker"
+title: "OCR on SageMaker"
 description: "SageMaker 비동기 추론 엔드포인트 기반 PaddleOCR 처리 파이프라인"
 ---
 

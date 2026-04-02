@@ -39,7 +39,7 @@ Segment Analyzer가 분석을 시작하기 전에, 여러 전처리기가 원본
 
 ### PaddleOCR
 
-문서와 이미지에서 텍스트를 추출합니다. 자세한 내용은 [PaddleOCR on SageMaker](./ocr.md)를 참조하세요.
+문서와 이미지에서 텍스트를 추출합니다. 자세한 내용은 [OCR on SageMaker](./ocr.md)를 참조하세요.
 
 ### Bedrock Data Automation (옵션)
 

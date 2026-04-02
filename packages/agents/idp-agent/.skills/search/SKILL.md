@@ -6,40 +6,34 @@ whenToUse: "Any user question requiring information lookup. When in doubt, use t
 
 # Search Skill
 
-Document search is always the first priority. Web search is a fallback only after document search returns insufficient results.
-
 Do NOT mention internal search strategy or tool selection reasoning to the user. Just search and answer.
 
-## Document Search
+## Available Search Methods
 
-For most questions, search documents first:
-1. `search___summarize` with the query
-2. Extract `qa_ids` from the `sources` array in the result
-3. `search___graph_traverse` with the same query + extracted `qa_ids`
-4. Combine results and answer with citations
+You have these search methods. Use your judgment to pick the right combination for each query.
 
-## Keyword Graph Search
+**`search___summarize`**
+Hybrid search (vector + keyword) on uploaded documents. Returns matching content with sources.
 
-When the user asks about a specific concept or keyword:
-1. `search___graph_keyword` with the keyword/concept
-2. Answer based on connected pages found
+**`search___graph_traverse`**
+Follows entity connections from search results to discover additional related pages. Requires `qa_ids` from `search___summarize` results.
 
-Can be used alone or combined with document search for comprehensive results.
+**`search___graph_keyword`**
+Finds pages by keyword similarity in the knowledge graph. Useful when a specific concept or term is the focus.
 
-## Web Search (fallback only)
+**`search` + `fetch_content`**
+Web search via DuckDuckGo. Use only when document search is insufficient. Fetch 3+ URLs. Clearly distinguish document vs. web sources.
 
-Only after document search returned insufficient results:
-1. `search` (DuckDuckGo) for web queries
-2. `fetch_content` on 3+ URLs from results
-3. Clearly distinguish document vs. web sources in the answer
+## Combinations
 
-## Tools
+- `search___summarize` alone — quick answer from documents
+- `search___summarize` → `search___graph_traverse` — deeper search with related pages
+- `search___graph_keyword` alone — explore a concept across documents
+- `search___summarize` + `search___graph_keyword` — comprehensive search
+- `search___summarize` → `search___graph_traverse` + `search___graph_keyword` — maximum coverage
+- Any of the above + web search — when documents are not enough
 
-- `search___summarize` — hybrid search on uploaded documents
-- `search___graph_traverse` — find related pages via entity connections (pass `qa_ids` from summarize results)
-- `search___graph_keyword` — find pages by keyword similarity in the knowledge graph
-- `search` — web search via DuckDuckGo (fallback)
-- `fetch_content` — fetch full content from a web URL
+Document search first. Web search last.
 
 ## Citations
 
