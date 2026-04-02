@@ -1,4 +1,4 @@
-## 0.2.4 (Draft)
+## 0.2.4 (2026-04-02)
 
 ### Knowledge Graph
 
@@ -48,7 +48,7 @@
 - Remove internal path labels from agent responses
 
 
-## 0.2.3 (Draft)
+## 0.2.3 (2026-03-23)
 
 ### Security
 
