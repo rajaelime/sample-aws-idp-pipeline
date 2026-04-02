@@ -10,7 +10,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import boto3
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
-from botocore.credentials import Credentials
 
 NEPTUNE_ENDPOINT = os.environ.get('NEPTUNE_ENDPOINT', '')
 NEPTUNE_PORT = os.environ.get('NEPTUNE_PORT', '8182')
@@ -245,6 +244,8 @@ def action_add_entities(params: dict) -> dict:
         {
             'eid': entity_id(project_id, ent['name']),
             'name': ent['name'],
+            'etype': ent.get('entity_type', 'PRIMARY'),
+            'anchor': ent.get('anchor', ''),
         }
         for ent in entities
     ]
@@ -255,7 +256,8 @@ def action_add_entities(params: dict) -> dict:
         run_query(
             'UNWIND $items AS item '
             'MERGE (e:Entity {`~id`: item.eid}) '
-            'SET e.id = item.eid, e.project_id = $pid, e.name = item.name',
+            'SET e.id = item.eid, e.project_id = $pid, e.name = item.name, '
+            'e.entity_type = item.etype, e.anchor = item.anchor',
             {'items': batch, 'pid': project_id},
         )
 
@@ -263,6 +265,8 @@ def action_add_entities(params: dict) -> dict:
     mention_items = []
     for ent in entities:
         eid = entity_id(project_id, ent['name'])
+        etype = ent.get('entity_type', 'PRIMARY')
+        anchor = ent.get('anchor', '')
         for mention in ent.get('mentioned_in', []):
             workflow_id = mention.get('workflow_id', '')
             segment_index = mention.get('segment_index', 0)
@@ -272,6 +276,8 @@ def action_add_entities(params: dict) -> dict:
                 'aid': f'{workflow_id}_{segment_index:04d}_{qa_index:02d}',
                 'conf': mention.get('confidence', 1.0),
                 'ctx': mention.get('context', ''),
+                'etype': etype,
+                'anchor': anchor,
             })
 
     for start in range(0, len(mention_items), batch_size):
@@ -280,7 +286,8 @@ def action_add_entities(params: dict) -> dict:
             'UNWIND $items AS item '
             'MATCH (e:Entity {`~id`: item.eid}), (a:Analysis {`~id`: item.aid}) '
             'MERGE (e)-[r:MENTIONED_IN]->(a) '
-            'SET r.confidence = item.conf, r.context = item.ctx',
+            'SET r.confidence = item.conf, r.context = item.ctx, '
+            'r.entity_type = item.etype, r.anchor = item.anchor',
             {'items': batch},
         )
 
@@ -323,7 +330,6 @@ def action_build_clusters(params: dict) -> dict:
 
 def action_link_documents(params: dict) -> dict:
     """Create bidirectional RELATED_TO relationships between two Document nodes."""
-    project_id = params['project_id']
     doc_id_1 = params['document_id_1']
     doc_id_2 = params['document_id_2']
     reason = params.get('reason', '')
@@ -521,7 +527,6 @@ def action_traverse(params: dict) -> dict:
 def action_find_related_segments(params: dict) -> dict:
     """Find Analysis nodes related to given entities via MENTIONED_IN, return segment info."""
     entity_ids = params.get('entity_ids', [])
-    depth = params.get('depth', 2)
     limit = params.get('limit', 20)
 
     if not entity_ids:
@@ -559,38 +564,32 @@ def action_search_graph(params: dict) -> dict:
     Falls back to entity name matching when qa_ids are not provided.
     """
     project_id = params['project_id']
-    query = params.get('query', '')
     document_id = params.get('document_id')
-    depth = params.get('depth', 2)
-    entity_limit = params.get('entity_limit', 10)
-    segment_limit = params.get('segment_limit', 20)
+    segment_limit = params.get('segment_limit', 30)
     # QA IDs from LanceDB results (format: wf_xxx_0001_00)
     qa_ids = params.get('qa_ids', [])
 
-    # 1. Find starting entities from provided Analysis IDs or by name matching
+    # 1. Find all entities connected to the provided Analysis IDs
     entity_results = []
 
     if qa_ids:
-        # From LanceDB QA IDs, find entities connected via MENTIONED_IN -> Analysis
         entity_results = run_query(
             'UNWIND $qids AS qid '
             'MATCH (e:Entity)-[:MENTIONED_IN]->(a:Analysis {`~id`: qid}) '
             'WHERE e.project_id = $pid '
-            'RETURN DISTINCT e.id AS id, e.name AS name '
-            f'LIMIT {int(entity_limit)}',
+            'RETURN DISTINCT e.id AS id, e.name AS name',
             {'qids': qa_ids, 'pid': project_id},
         )
     if not entity_results:
         return {'success': True, 'entities': [], 'segments': []}
 
-    # 2. From matched entities, find related Analysis -> Segment via MENTIONED_IN
+    # 2. From all matched entities, find related segments in a single query
     # Convert qa_ids (wf_xxx_0001_00) to segment_ids (wf_xxx_0001) for dedup
-    seen_seg_ids = set()
+    source_seg_ids = []
     for qid in qa_ids:
         parts = qid.rsplit('_', 1)
         if len(parts) == 2:
-            seen_seg_ids.add(parts[0])
-    traversal_segments = []
+            source_seg_ids.append(parts[0])
 
     # Collect document_ids from qa_ids for same-document filtering
     source_doc_ids = set()
@@ -605,39 +604,39 @@ def action_search_graph(params: dict) -> dict:
     if document_id:
         source_doc_ids.add(document_id)
 
-    # Build document filter clause
+    # Single query: UNWIND all entity IDs, find connected segments, exclude source segments
+    entity_ids = [e['id'] for e in entity_results]
+    query_params = {
+        'eids': entity_ids,
+        'exclude_sids': source_seg_ids,
+        'pid': project_id,
+    }
     doc_filter = ''
-    query_params_extra = {}
     if source_doc_ids:
         doc_filter = 'AND seg.document_id IN $doc_ids '
-        query_params_extra['doc_ids'] = list(source_doc_ids)
+        query_params['doc_ids'] = list(source_doc_ids)
 
-    entity_ids = [e['id'] for e in entity_results]
-    for eid in entity_ids:
-        results = run_query(
-            'MATCH (e:Entity {`~id`: $eid}) '
-            'OPTIONAL MATCH (e)-[:MENTIONED_IN]->(a:Analysis)-[:BELONGS_TO]->(s:Segment) '
-            'WITH collect(DISTINCT s) AS allSegs '
-            'UNWIND allSegs AS seg '
-            f'WITH seg WHERE seg IS NOT NULL {doc_filter}'
-            'RETURN DISTINCT seg.id AS id, seg.workflow_id AS workflow_id, '
-            'seg.document_id AS document_id, seg.segment_index AS segment_index '
-            f'LIMIT {int(segment_limit)}',
-            {'eid': eid, **query_params_extra},
-        )
-        for r in results:
-            if r.get('id') and r['id'] not in seen_seg_ids:
-                seen_seg_ids.add(r['id'])
-                traversal_segments.append(r)
+    traversal_results = run_query(
+        'UNWIND $eids AS eid '
+        'MATCH (e:Entity {`~id`: eid})-[:MENTIONED_IN]->(a:Analysis)-[:BELONGS_TO]->(seg:Segment) '
+        f'WHERE seg.project_id = $pid AND NOT seg.id IN $exclude_sids {doc_filter}'
+        'RETURN DISTINCT a.`~id` AS analysis_id, a.qa_index AS qa_index, '
+        'seg.id AS id, seg.workflow_id AS workflow_id, '
+        'seg.document_id AS document_id, seg.segment_index AS segment_index '
+        f'LIMIT {int(segment_limit)}',
+        query_params,
+    )
 
     # 3. Build result segments
     all_segments = []
-    for s in traversal_segments:
+    for s in traversal_results:
         seg = {
             'id': s['id'],
             'workflow_id': s['workflow_id'],
             'document_id': s['document_id'],
             'segment_index': s['segment_index'],
+            'qa_id': s.get('analysis_id'),
+            'qa_index': s.get('qa_index', 0),
             'match_type': 'traversal',
         }
         if not document_id or seg['document_id'] == document_id:
@@ -646,7 +645,7 @@ def action_search_graph(params: dict) -> dict:
     return {
         'success': True,
         'entities': entity_results,
-        'segments': all_segments[:segment_limit],
+        'segments': all_segments,
     }
 
 
@@ -965,7 +964,7 @@ def _build_search_graph(document_id, project_id, search_term):
     matched = run_query(
         'MATCH (d:Document {`~id`: $did})<-[:BELONGS_TO]-(s:Segment)<-[:BELONGS_TO]-(a:Analysis)'
         '<-[:MENTIONED_IN]-(e:Entity) '
-        'WHERE toLower(e.name) CONTAINS toLower($term) '
+        'WHERE toLower(e.name) = toLower($term) '
         'RETURN DISTINCT e.`~id` AS id, e.name AS name',
         p, _retries=5,
     )
@@ -997,21 +996,16 @@ def _build_search_graph(document_id, project_id, search_term):
         {'sids': seg_ids}, _retries=5,
     )
 
-    # Get all entities on those segments
-    ent_results = run_query(
-        'MATCH (s:Segment)<-[:BELONGS_TO]-(a:Analysis)<-[:MENTIONED_IN]-(e:Entity) '
-        'WHERE s.id IN $sids '
-        'RETURN DISTINCT e.`~id` AS id, e.name AS name',
-        {'sids': seg_ids}, _retries=5,
-    )
+    # Only return the matched entities (not all entities on found segments)
+    ent_results = [{'id': e['id'], 'name': e['name']} for e in matched]
 
-    # Mentions
+    # Mentions: only edges from matched entities
     mention_results = run_query(
         'MATCH (s:Segment)<-[:BELONGS_TO]-(a:Analysis)<-[r:MENTIONED_IN]-(e:Entity) '
-        'WHERE s.id IN $sids '
+        'WHERE s.id IN $sids AND e.`~id` IN $eids '
         'RETURN e.`~id` AS source, a.id AS target, '
         'r.confidence AS confidence, r.context AS context',
-        {'sids': seg_ids}, _retries=5,
+        {'sids': seg_ids, 'eids': matched_ids}, _retries=5,
     )
 
     # NEXT edges between found segments
@@ -1332,7 +1326,7 @@ def handler(event, _context):
         'delete_analysis': action_delete_analysis,
         'delete_by_workflow': action_delete_by_workflow,
         'clear_all': action_clear_all,
-        'raw_query': lambda params: {'success': True, 'results': run_query(params['query'])},
+        'raw_query': lambda params: {'success': True, 'results': run_query(params['query'], params.get('parameters'))},
         # Read
         'search_graph': action_search_graph,
         'traverse': action_traverse,

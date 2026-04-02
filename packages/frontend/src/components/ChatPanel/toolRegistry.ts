@@ -7,7 +7,7 @@ import {
   BookOpen,
   File,
   Sparkles,
-  Network,
+  Share2,
   type LucideIcon,
 } from 'lucide-react';
 import type { ToolRegistryEntry } from './types';
@@ -50,10 +50,16 @@ const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     resultLabel: 'chat.calculationResult',
     loadingLabel: 'chat.calculating',
   },
-  graph___graph_search: {
-    icon: Network,
+  search___graph_traverse: {
+    icon: Share2,
     resultLabel: 'chat.graphSearch',
     loadingLabel: 'chat.graphSearching',
+    renderAsGraph: true,
+  },
+  search___graph_keyword: {
+    icon: Share2,
+    resultLabel: 'chat.graphKeywordSearch',
+    loadingLabel: 'chat.graphKeywordSearching',
     renderAsGraph: true,
   },
 };

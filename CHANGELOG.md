@@ -1,4 +1,54 @@
-## 0.2.3 (Draft)
+## 0.2.4 (2026-04-02)
+
+### Knowledge Graph
+
+- Refactor entity extraction into dedicated Lambda (`entity-extractor`) with test mode for prompt tuning
+- Split `analysis-finalizer` into 3 parallel Lambdas: SQS sender, page description generator, entity extractor
+- Introduce core entity normalization using LLM — groups related entities loosely for better cross-page connections
+- Store core entities in LanceDB (`add_graph_keywords`) for cross-document keyword search
+- Add `search___graph_traverse` tool (qa_ids-based graph traversal, replaces `graph___graph_search`)
+- Add `search___graph_keyword` tool (keyword similarity search via LanceDB + Neptune)
+- Remove `graph-mcp` Lambda; merge graph tools into `search-mcp`
+- Optimize Neptune queries: remove entity_limit, consolidate entity loop into single UNWIND query
+- Graph search returns qa_id/qa_index for precise QA-level results
+- Graph search filters sources to only Haiku-cited segments
+- Entity extraction prompt improvements: skip visual labels, chart axes, generic terms
+- Entity normalization prompt: loose grouping with core entity creation (one entity can belong to multiple groups)
+
+### Features
+
+- Add graph keywords actions for lancedb-service (#248)
+- Add `get_by_qa_ids` action for LanceDB (#260)
+- Add rerank action and restructure search-mcp into actions/lib (#258)
+- Delete keywords by project id (#249)
+
+### Bug Fixes
+
+- Fix single image OCR chunk merger race condition (add `chunk_index` to single payload)
+- Fix backend graph rebuild API timeout (increase Lambda invoke `read_timeout` to 900s)
+- Fix graph-service `raw_query` not passing openCypher parameters
+- Fix frontend `isGraphTool` check for renamed graph tools
+- Fix `ToolResultDetailModal` segment_id parsing for qa_id format
+
+### UI
+
+- Add keyword display and connected entities to graph search result modal
+- Add origin page indicators (yellow nodes) in graph search visualization
+- Add clickable origin page filter in graph search modal
+- Collapsible entity list in graph search results
+- Show Analysis/Extra labels instead of QA index numbers
+- Hide NEXT edges by default in document graph view
+- Increase graph page range limit to 100
+- Graph search shows only matched entities (not all entities on found segments)
+- Deduplicate sources by page in graph results
+
+### Search Skill
+
+- Rewrite search skill with document search, keyword graph search, and web search paths
+- Remove internal path labels from agent responses
+
+
+## 0.2.3 (2026-03-23)
 
 ### Security
 

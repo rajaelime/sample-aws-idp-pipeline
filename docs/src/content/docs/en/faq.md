@@ -149,7 +149,7 @@ Yes. Large documents are supported through segment-based processing with Step Fu
 | **PaddleOCR** | Open-source OCR running on Lambda (Rust, MNN inference) or SageMaker (GPU). Supports 80+ languages. Optimized for text extraction |
 | **Bedrock Data Automation (BDA)** | AWS managed service. Analyzes document structure (tables, forms, etc.) together. Selectable in project settings |
 
-> For details, see [PaddleOCR on SageMaker](./ocr.md).
+> For details, see [OCR on SageMaker](./ocr.md).
 
 ### How are video/audio files analyzed?
 
@@ -255,7 +255,7 @@ aws lambda invoke --function-name idp-v2-lancedb-service \
 
 ```bash
 aws lambda invoke --function-name idp-v2-lancedb-service \
-    --payload '{"action": "get_segments", "params": {"project_id": "YOUR_PROJECT_ID", "workflow_id": "YOUR_WORKFLOW_ID"}}' \
+    --payload '{"action": "get_segments_by_document_id", "params": {"project_id": "YOUR_PROJECT_ID", "document_id": "YOUR_DOCUMENT_ID"}}' \
     --cli-binary-format raw-in-base64-out \
     /dev/stdout 2>/dev/null | jq .
 ```

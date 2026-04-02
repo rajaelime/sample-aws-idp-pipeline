@@ -1,11 +1,9 @@
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
-import {
-  BedrockRuntimeClient,
-  ConverseCommand,
-} from '@aws-sdk/client-bedrock-runtime';
+import { BedrockRuntimeClient } from '@aws-sdk/client-bedrock-runtime';
+
+export const bedrockClient = new BedrockRuntimeClient();
 
 const lambdaClient = new LambdaClient();
-export const bedrockClient = new BedrockRuntimeClient();
 
 export async function invokeLanceDB(
   action: string,
@@ -29,6 +27,10 @@ export async function invokeLanceDB(
   const payload = response.Payload
     ? JSON.parse(new TextDecoder().decode(response.Payload))
     : {};
+
+  if (payload.statusCode !== 200) {
+    throw new Error(payload.error ?? 'LanceDB Lambda error');
+  }
 
   return payload;
 }

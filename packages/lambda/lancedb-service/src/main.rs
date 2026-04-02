@@ -1,6 +1,6 @@
 use lambda_runtime::{Error, LambdaEvent, service_fn};
 use lancedb_service::LanceDbAction;
-use lancedb_service::action::{add_record, count, delete_by_workflow, delete_record, drop_table, get_by_segment_ids, get_segments, hybrid_search, list_tables};
+use lancedb_service::action::{add_graph_keywords, add_record, count, delete_by_workflow, delete_graph_keywords_by_project_id, delete_record, drop_table, get_by_qa_ids, get_by_segment_ids, get_graph_keywords, get_segments_by_document_id, hybrid_search, list_tables, search_graph_keywords};
 use lancedb_service::db;
 use serde::Serialize;
 use tracing::info;
@@ -48,19 +48,31 @@ async fn handler(
     info!("[handler] Connected");
 
     let result: Result<serde_json::Value, (u16, String)> = match action {
+        LanceDbAction::AddGraphKeywords(params) => add_graph_keywords::execute(&conn, bedrock_client, params).await
+            .map_err(|e| (500, e.to_string()))
+            .and_then(|v| serde_json::to_value(v).map_err(|e| (500, e.to_string()))),
         LanceDbAction::ListTables => list_tables::execute(&conn).await
             .map_err(|e| (500, e.to_string()))
             .and_then(|v| serde_json::to_value(v).map_err(|e| (500, e.to_string()))),
         LanceDbAction::Count(params) => count::execute(&conn, params).await
             .map_err(|e| (500, e.to_string()))
             .and_then(|v| serde_json::to_value(v).map_err(|e| (500, e.to_string()))),
-        LanceDbAction::GetSegments(params) => get_segments::execute(&conn, params).await
+        LanceDbAction::GetGraphKeywords(params) => get_graph_keywords::execute(&conn, params).await
+            .map_err(|e| (500, e.to_string()))
+            .and_then(|v| serde_json::to_value(v).map_err(|e| (500, e.to_string()))),
+        LanceDbAction::GetSegmentsByDocumentId(params) => get_segments_by_document_id::execute(&conn, params).await
+            .map_err(|e| (500, e.to_string()))
+            .and_then(|v| serde_json::to_value(v).map_err(|e| (500, e.to_string()))),
+        LanceDbAction::GetByQaIds(params) => get_by_qa_ids::execute(&conn, params).await
             .map_err(|e| (500, e.to_string()))
             .and_then(|v| serde_json::to_value(v).map_err(|e| (500, e.to_string()))),
         LanceDbAction::GetBySegmentIds(params) => get_by_segment_ids::execute(&conn, params).await
             .map_err(|e| (500, e.to_string()))
             .and_then(|v| serde_json::to_value(v).map_err(|e| (500, e.to_string()))),
         LanceDbAction::AddRecord(params) => add_record::execute(&conn, lambda_client, bedrock_client, params).await
+            .map_err(|e| (500, e.to_string()))
+            .and_then(|v| serde_json::to_value(v).map_err(|e| (500, e.to_string()))),
+        LanceDbAction::SearchGraphKeywords(params) => search_graph_keywords::execute(&conn, bedrock_client, params).await
             .map_err(|e| (500, e.to_string()))
             .and_then(|v| serde_json::to_value(v).map_err(|e| (500, e.to_string()))),
         LanceDbAction::HybridSearch(params) => hybrid_search::execute(&conn, lambda_client, bedrock_client, params).await
@@ -70,6 +82,9 @@ async fn handler(
             .map_err(|e| (500, e.to_string()))
             .and_then(|v| serde_json::to_value(v).map_err(|e| (500, e.to_string()))),
         LanceDbAction::DeleteByWorkflow(params) => delete_by_workflow::execute(&conn, params).await
+            .map_err(|e| (500, e.to_string()))
+            .and_then(|v| serde_json::to_value(v).map_err(|e| (500, e.to_string()))),
+        LanceDbAction::DeleteGraphKeywordsByProjectId(params) => delete_graph_keywords_by_project_id::execute(&conn, params).await
             .map_err(|e| (500, e.to_string()))
             .and_then(|v| serde_json::to_value(v).map_err(|e| (500, e.to_string()))),
         LanceDbAction::DropTable(params) => drop_table::execute(&conn, params).await

@@ -29,7 +29,7 @@ Strands Agent (Claude Opus 4.6)
 
 | 스킬 | 용도 | 사용 도구 |
 |---|---|---|
-| **search** | 문서 검색 + 웹 검색 전략 | Search MCP, Graph MCP, DuckDuckGo |
+| **search** | 문서 검색 + 웹 검색 전략 | Search MCP (graph_traverse, graph_keyword), DuckDuckGo |
 | **docx** | Word 문서 생성/편집 | Code Interpreter (python-docx) |
 | **xlsx** | Excel 스프레드시트 생성/편집 | Code Interpreter (openpyxl) |
 | **pptx** | PowerPoint 생성/편집 | Code Interpreter (python-pptx) |
@@ -45,7 +45,7 @@ Strands Agent (Claude Opus 4.6)
   │
   ├─ [1] search 스킬 로딩 → 문서 검색
   │   ├─ Search MCP (summarize) → 벡터 + FTS 검색
-  │   └─ Graph MCP (graph_search) → 엔티티 연결 탐색
+  │   └─ Search MCP (graph_traverse) → 엔티티 연결 탐색
   │
   ├─ [2] docx 스킬 로딩 → Word 문서 생성
   │   └─ Code Interpreter → python-docx로 문서 작성 → S3 업로드
@@ -67,14 +67,8 @@ AgentCore Gateway를 통해 접근하는 MCP 도구입니다.
 |---|---|
 | `summarize` | 하이브리드 검색 (벡터 + FTS) → Haiku 요약, qa_ids 반환 |
 | `overview` | 프로젝트 문서 목록 조회 |
-
-### Graph MCP
-
-| 도구 | 설명 |
-|---|---|
-| `graph_search` | qa_ids 기반 엔티티 그래프 탐색, 관련 페이지 발견 |
-| `link_documents` | 문서 간 연결 생성 |
-| `unlink_documents` | 문서 간 연결 해제 |
+| `graph_traverse` | qa_ids 기반 엔티티 그래프 탐색, 관련 페이지 발견 |
+| `graph_keyword` | 키워드 기반 그래프 검색 |
 
 ### Document MCP
 

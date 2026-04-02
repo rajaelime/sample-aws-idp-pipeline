@@ -3,9 +3,6 @@ import os
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import yaml
-from strands import Agent
-from strands.models import BedrockModel
 
 from shared.ddb_client import (
     record_step_start,
@@ -15,13 +12,12 @@ from shared.ddb_client import (
     get_document,
     StepName,
 )
-from shared.s3_analysis import get_all_segment_analyses, get_segment_analysis, get_s3_client, parse_s3_uri
+from shared.s3_analysis import get_all_segment_analyses, get_s3_client, parse_s3_uri
 
 import boto3
 
 GRAPH_SERVICE_FUNCTION_NAME = os.environ.get('GRAPH_SERVICE_FUNCTION_NAME', '')
-GRAPH_BUILDER_MODEL_ID = os.environ.get('GRAPH_BUILDER_MODEL_ID', '')
-PROMPTS = None
+LANCEDB_FUNCTION_NAME = os.environ.get('LANCEDB_FUNCTION_NAME', '')
 
 lambda_client = None
 
@@ -36,17 +32,6 @@ def get_lambda_client():
             config=Config(read_timeout=300),
         )
     return lambda_client
-
-
-def get_prompts():
-    global PROMPTS
-    if PROMPTS is None:
-        path = os.path.join(
-            os.path.dirname(__file__), 'prompts', 'entity_extraction.yaml'
-        )
-        with open(path, 'r') as f:
-            PROMPTS = yaml.safe_load(f)
-    return PROMPTS
 
 
 def invoke_graph_service(action: str, params: dict, max_retries: int = 3) -> dict:
@@ -131,18 +116,24 @@ def create_analysis_nodes(segments, workflow_id, project_id, document_id):
     return analyses
 
 
-def deduplicate_entities(all_entities):
-    """Deduplicate entities by normalized name."""
-    seen = {}
-    for ent in all_entities:
-        key = ent["name"].lower().strip()
-        if key in seen:
-            existing = seen[key]
-            for mention in ent.get('mentioned_in', []):
-                existing.setdefault('mentioned_in', []).append(mention)
-        else:
-            seen[key] = ent
-    return list(seen.values())
+from normalizer import deduplicate_entities, normalize_entities
+
+
+def invoke_lancedb(action: str, params: dict) -> dict:
+    """Invoke LanceDB service Lambda."""
+    if not LANCEDB_FUNCTION_NAME:
+        return {}
+    client = get_lambda_client()
+    response = client.invoke(
+        FunctionName=LANCEDB_FUNCTION_NAME,
+        InvocationType='RequestResponse',
+        Payload=json.dumps({'action': action, 'params': params}),
+    )
+    payload = json.loads(response['Payload'].read())
+    if response.get('FunctionError') or payload.get('statusCode') != 200:
+        print(f'LanceDB error: {payload.get("error", "Unknown")}')
+        return {}
+    return payload
 
 
 def collect_entities_from_segments(segments, workflow_id):
@@ -165,110 +156,8 @@ def collect_entities_from_segments(segments, workflow_id):
     return all_entities, all_relationships
 
 
-def extract_entities_for_segment(segment_data, segment_index, language):
-    """Fallback: extract entities via LLM for a single segment (used by qa-regenerator)."""
-    if not GRAPH_BUILDER_MODEL_ID:
-        return {'entities': [], 'relationships': []}
-
-    prompts = get_prompts()
-    segments_text = ''
-    for qa_idx, analysis in enumerate(segment_data.get('ai_analysis', [])):
-        content = analysis.get('content', '')
-        if content:
-            segments_text += f'\n--- Segment {segment_index}, QA {qa_idx} ---\n{content}\n'
-    page_desc = segment_data.get('page_description', '')
-    if page_desc:
-        segments_text += f'\n--- Segment {segment_index}, Page Description ---\n{page_desc}\n'
-
-    if not segments_text.strip():
-        return {'entities': [], 'relationships': []}
-
-    system_prompt = prompts['system'].replace('{segment_index}', str(segment_index))
-    user_text = prompts['user'].format(
-        language=language,
-        existing_entities='None',
-        segments=segments_text,
-        segment_index=segment_index,
-    )
-
-    region = os.environ.get('AWS_REGION', 'us-east-1')
-    bedrock_model = BedrockModel(model_id=GRAPH_BUILDER_MODEL_ID, region_name=region)
-    agent = Agent(model=bedrock_model, system_prompt=system_prompt)
-
-    try:
-        result = str(agent(user_text)).strip()
-        if result.startswith('```'):
-            result = result.split('```')[1]
-            if result.startswith('json'):
-                result = result[4:]
-        parsed = json.loads(result)
-
-        # Force all mentioned_in to use the correct segment_index
-        for ent in parsed.get('entities', []):
-            for mention in ent.get('mentioned_in', []):
-                mention['segment_index'] = segment_index
-
-        return parsed
-    except (json.JSONDecodeError, Exception) as e:
-        print(f'Entity extraction parse error: {e}')
-        return {'entities': [], 'relationships': []}
-
-
-def handle_extract_entities(event):
-    """Extract entities for a single segment and update Neptune graph.
-
-    Called by qa-regenerator after adding/regenerating a QA pair.
-    """
-    project_id = event['project_id']
-    workflow_id = event['workflow_id']
-    file_uri = event['file_uri']
-    segment_index = event['segment_index']
-    language = event.get('language', 'English')
-
-    segment_data = get_segment_analysis(file_uri, segment_index)
-    if not segment_data:
-        print(f'Segment not found: {file_uri}, index {segment_index}')
-        return {'success': False, 'error': 'Segment not found'}
-
-    result = extract_entities_for_segment(segment_data, segment_index, language)
-    entities = result.get('entities', [])
-    relationships = result.get('relationships', [])
-
-    # Normalize mention references
-    for ent in entities:
-        normalized = []
-        mentions = ent.get('mentioned_in') or ent.get('mentioned_in_segments') or []
-        for mention in mentions:
-            if isinstance(mention, int):
-                mention = {'segment_index': mention, 'qa_index': 0}
-            elif isinstance(mention, dict) and 'qa_index' not in mention:
-                mention['qa_index'] = 0
-            mention['workflow_id'] = workflow_id
-            normalized.append(mention)
-        ent['mentioned_in'] = normalized
-
-    unique_entities = deduplicate_entities(entities)
-    print(f'Extracted {len(unique_entities)} entities, {len(relationships)} relationships')
-
-    if unique_entities:
-        send_batches_parallel(
-            'add_entities', 'entities', unique_entities,
-            {'project_id': project_id},
-        )
-
-    return {
-        'success': True,
-        'entity_count': len(unique_entities),
-        'relationship_count': 0,
-    }
-
-
 def handler(event, _context):
     print(f'Event: {json.dumps(event)}')
-
-    # Single-segment entity extraction mode (called by qa-regenerator)
-    if event.get('mode') == 'extract_entities':
-        return handle_extract_entities(event)
 
     workflow_id = event.get('workflow_id')
     document_id = event.get('document_id', '')
@@ -292,7 +181,7 @@ def handler(event, _context):
             'segment_count': segment_count,
         }
 
-    language = event.get('language') or get_project_language(project_id)
+    _language = event.get('language') or get_project_language(project_id)
 
     record_step_start(workflow_id, StepName.GRAPH_BUILDER)
 
@@ -339,7 +228,7 @@ def handler(event, _context):
                 })
         print(f'Analyses: {len(analyses)}')
 
-        # 4. Collect and deduplicate entities
+        # 4. Collect, deduplicate, and normalize entities
         all_entities, all_relationships = collect_entities_from_segments(
             segments_sorted, workflow_id
         )
@@ -348,8 +237,28 @@ def handler(event, _context):
             f'Entities: {len(all_entities)} -> {len(unique_entities)} unique, '
             f'Relationships: {len(all_relationships)}'
         )
+        # Fetch existing core entities from LanceDB for cross-document matching
+        existing_keywords = []
+        if LANCEDB_FUNCTION_NAME:
+            kw_result = invoke_lancedb('get_graph_keywords', {
+                'project_id': project_id,
+                'limit': 10000,
+            })
+            existing_keywords = [kw['name'] for kw in kw_result.get('keywords', [])]
+            print(f'Existing core entities from LanceDB: {len(existing_keywords)}')
 
-        # 5. Save work items to S3 for Map processing
+        unique_entities = normalize_entities(unique_entities, existing_keywords)
+
+        # 5. Store core entity names in LanceDB for cross-document matching
+        if unique_entities and LANCEDB_FUNCTION_NAME:
+            core_names = [ent['name'] for ent in unique_entities]
+            invoke_lancedb('add_graph_keywords', {
+                'project_id': project_id,
+                'keywords': core_names,
+            })
+            print(f'Stored {len(core_names)} core entities in LanceDB')
+
+        # 6. Save work items to S3 for Map processing
         bucket, s3_key = parse_s3_uri(file_uri)
         doc_prefix = '/'.join(s3_key.split('/')[:-1])  # e.g. projects/proj_X/documents/doc_X
         base_key = f'{doc_prefix}/graph_work'

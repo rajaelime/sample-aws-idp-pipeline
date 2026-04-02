@@ -107,6 +107,21 @@ def handler(event, context):
 
     elif status == 'FAILED':
         failure_reason = job.get('FailureReason', 'Unknown error')
+
+        # Skip non-recoverable audio parse errors (e.g. video without audio track)
+        if 'Failed to parse audio file' in failure_reason:
+            print(f'[{workflow_id}] Skipping transcription: {failure_reason}')
+            update_preprocess_status(
+                document_id=document_id,
+                workflow_id=workflow_id,
+                processor=PreprocessType.TRANSCRIBE,
+                status=PreprocessStatus.SKIPPED,
+                error=failure_reason,
+                job_name=job_name
+            )
+            record_step_complete(workflow_id, StepName.TRANSCRIBE)
+            return {**event, 'transcribe_status': 'SKIPPED', 'transcribe_skip_reason': failure_reason}
+
         update_preprocess_status(
             document_id=document_id,
             workflow_id=workflow_id,

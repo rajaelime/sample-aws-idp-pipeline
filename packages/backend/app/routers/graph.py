@@ -17,8 +17,14 @@ _lambda_client = None
 def get_lambda_client():
     global _lambda_client
     if _lambda_client is None:
+        from botocore.config import Config as BotoConfig
+
         config = get_config()
-        _lambda_client = boto3.client("lambda", region_name=config.aws_region)
+        _lambda_client = boto3.client(
+            "lambda",
+            region_name=config.aws_region,
+            config=BotoConfig(read_timeout=900),
+        )
     return _lambda_client
 
 

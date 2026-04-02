@@ -5,18 +5,21 @@ description: "Knowledge graph and entity relationship traversal with Neptune DB 
 
 ## Overview
 
-This project uses [Amazon Neptune DB Serverless](https://docs.aws.amazon.com/neptune/latest/userguide/neptune-serverless.html) as its graph database. Entities (people, organizations, concepts, technologies, etc.) and relationships extracted during document analysis are built into a knowledge graph, enabling **entity-connection-based traversal** that is difficult to achieve with vector search alone.
+This project uses [Amazon Neptune DB Serverless](https://docs.aws.amazon.com/neptune/latest/userguide/neptune-serverless.html) as its graph database. Core entities extracted and normalized during document analysis are stored in a knowledge graph, enabling **entity-connection-based traversal** that is difficult to achieve with vector search alone.
 
 ### Difference from Vector Search
 
-| Aspect | Vector Search (LanceDB) | Graph Traversal (Neptune) |
-|--------|------------------------|--------------------------|
-| Search method | Semantic similarity | Entity relationship graph traversal |
-| Strength | Finding "similar content" | Discovering "connected content" |
-| Example | Search "AI analysis" → segments with similar content | From pages mentioning "AWS Bedrock" → discover other pages where related entities appear |
-| Data | content_combined + vector embeddings | Entity, relationship, and segment nodes |
+| Aspect | Vector Search (LanceDB) | Graph Traversal (Neptune) | Keyword Graph (LanceDB + Neptune) |
+|--------|------------------------|--------------------------|-----------------------------------|
+| Search method | Semantic similarity | Entity relationship traversal | Keyword embedding similarity + graph traversal |
+| Strength | Finding "similar content" | Discovering "connected content" from search results | Discovering pages by concept keyword |
+| Input | User query | QA IDs from search results | Keyword string |
+| Data | content_combined + vector embeddings | Core entity nodes + MENTIONED_IN edges | Graph keywords (name + embedding) + Neptune entities |
 
-These two search methods are used together by the agent via **MCP Search Tool + MCP Graph Tool**. Vector search provides initial results, and graph traversal discovers additional related pages.
+These search methods are used together by the agent via **Search MCP tools**:
+- `search___summarize` — hybrid search on documents
+- `search___graph_traverse` — graph traversal from search result QA IDs
+- `search___graph_keyword` — keyword similarity search via LanceDB graph keywords
 
 ---
 
@@ -26,19 +29,38 @@ These two search methods are used together by the agent via **MCP Search Tool + 
 
 ```
 Step Functions Workflow
-  → Map(SegmentAnalyzer + AnalysisFinalizer)
-    → AnalysisFinalizer: Entity/relationship extraction via Strands Agent (parallel per segment)
-      → GraphBuilder Lambda: Collection + deduplication
-        → GraphService Lambda (VPC): openCypher query execution
-          → Neptune DB Serverless
+  → Distributed Map (max 30 concurrency)
+    → SegmentAnalyzer
+    → Parallel:
+      +- AnalysisFinalizer (SQS → LanceDB)
+      +- PageDescriptionGenerator (Haiku)
+      '- EntityExtractor (Haiku) → S3 (graph_entities)
+  → GraphBuilder Lambda:
+    1. Collect entities from all segments (S3)
+    2. Deduplicate (exact name match)
+    3. Normalize → Core entities (Sonnet via Strands structured output)
+    4. Store core entity names in LanceDB (add_graph_keywords)
+    5. Save work files to S3 (entities.json, analyses.json)
+  → GraphBatchSender (Map) → GraphService Lambda (VPC) → Neptune
 ```
 
-### Graph Search (Read Path)
+### Graph Traverse (Read Path — from search results)
 
 ```
-Agent → MCP Gateway → Graph MCP Lambda
-  → GraphService Lambda (VPC): graph_search (entity traversal)
+Agent → MCP Gateway → Search MCP Lambda (graph_traverse)
+  → GraphService Lambda (VPC): search_graph (entity traversal from qa_ids)
   → LanceDB Service Lambda: Segment content retrieval
+  → Bedrock Claude Haiku: Result summarization
+```
+
+### Keyword Graph Search (Read Path — from keyword)
+
+```
+Agent → MCP Gateway → Search MCP Lambda (graph_keyword)
+  → LanceDB Service: search_graph_keywords (embedding similarity)
+  → SHA256 hash entity names → Neptune entity ~id
+  → GraphService Lambda (VPC): raw_query (find connected qa_ids)
+  → LanceDB Service: get_by_qa_ids (content retrieval)
   → Bedrock Claude Haiku: Result summarization
 ```
 
@@ -63,7 +85,7 @@ Node and relationship structure stored in Neptune. Uses openCypher as the query 
 | **Document** | Document | `id`, `project_id`, `workflow_id`, `file_name`, `file_type` |
 | **Segment** | Document page/section | `id`, `project_id`, `workflow_id`, `document_id`, `segment_index` |
 | **Analysis** | QA analysis result | `id`, `project_id`, `workflow_id`, `document_id`, `segment_index`, `qa_index`, `question` |
-| **Entity** | Extracted entity | `id`, `project_id`, `name` |
+| **Entity** | Core entity (normalized) | `id`, `project_id`, `name` |
 
 ### Relationships (Edges)
 
@@ -73,7 +95,6 @@ Node and relationship structure stored in Neptune. Uses openCypher as the query 
 | `BELONGS_TO` | Analysis → Segment | Analysis belongs to segment |
 | `NEXT` | Segment → Segment | Page order (next segment) |
 | `MENTIONED_IN` | Entity → Analysis | Entity mentioned in a specific QA (`confidence`, `context`) |
-| `RELATES_TO` | Entity → Entity | Relationship between entities (`relationship`, `source`) |
 | `RELATED_TO` | Document → Document | Manual document-to-document link (`reason`, `label`) |
 
 ### Node ID Design
@@ -95,15 +116,14 @@ Neptune does not support secondary indexes — the node's `~id` property is the 
 ```
 Document (report.pdf)
   ├── Segment (page 0) ──NEXT──→ Segment (page 1) ──NEXT──→ ...
-  │     └── Analysis (QA 1) ←──MENTIONED_IN── Entity ("AWS Bedrock")
-  │     └── Analysis (QA 2) ←──MENTIONED_IN── Entity ("Claude")
-  │                                                  │
-  │                                           RELATES_TO
-  │                                                  ▼
-  │                                            Entity ("Anthropic")
+  │     └── Analysis (QA 0) ←──MENTIONED_IN── Entity ("Prototyping")
+  │     └── Analysis (QA 1) ←──MENTIONED_IN── Entity ("AWS")
   └── Segment (page 1)
-        └── Analysis (QA 1) ←──MENTIONED_IN── Entity ("Anthropic")
+        └── Analysis (QA 0) ←──MENTIONED_IN── Entity ("Prototyping")
+        └── Analysis (QA 0) ←──MENTIONED_IN── Entity ("Innovation Flywheel")
 ```
+
+Core entity "Prototyping" connects pages 0 and 1 because it was normalized from "Prototype" (page 0) and "AWS Prototyping" (page 1).
 
 ---
 
@@ -121,8 +141,6 @@ Document (report.pdf)
 | Authentication | IAM Auth (SigV4) |
 | Port | 8182 |
 | Query Language | openCypher |
-
-Neptune DB Serverless automatically scales based on usage and reduces cost to minimum capacity (1 NCU) when idle.
 
 ### 2. GraphService Lambda
 
@@ -143,21 +161,37 @@ A gateway Lambda that communicates directly with Neptune. Deployed inside the VP
 | **Write** | `add_segment_links` | Create Document + Segment nodes, BELONGS_TO/NEXT relationships |
 | | `add_analyses` | Create Analysis nodes, BELONGS_TO to Segment |
 | | `add_entities` | MERGE Entity nodes, MENTIONED_IN to Analysis |
-| | `add_relationships` | Create RELATES_TO relationships between Entities |
 | | `link_documents` | Create bidirectional RELATED_TO between Documents |
 | | `unlink_documents` | Delete RELATED_TO between Documents |
 | | `delete_analysis` | Delete Analysis node + cleanup orphaned Entities |
 | | `delete_by_workflow` | Delete all graph data for a workflow |
-| **Read** | `search_graph` | QA ID-based graph traversal (Entity → RELATES_TO → related Segments) |
-| | `traverse` | N-hop graph traversal |
-| | `find_related_segments` | Find related segments by entity IDs |
+| **Read** | `search_graph` | QA ID-based graph traversal (Entity → MENTIONED_IN → related Segments) |
+| | `raw_query` | Execute arbitrary openCypher query with parameters |
 | | `get_entity_graph` | Project-wide entity graph query (visualization) |
 | | `get_document_graph` | Document-level detailed graph query (visualization) |
 | | `get_linked_documents` | Query document link relationships |
 
-### 3. GraphBuilder Lambda (Step Functions)
+### 3. EntityExtractor Lambda (Step Functions)
 
-Runs after Map(SegmentAnalyzer) completion and before DocumentSummarizer in the Step Functions workflow.
+Runs in parallel with AnalysisFinalizer and PageDescriptionGenerator inside the Distributed Map.
+
+| Item | Value |
+|------|-------|
+| Function Name | `idp-v2-entity-extractor` |
+| Runtime | Python 3.14 |
+| Timeout | 5 min |
+| Model | Bedrock Haiku 4.5 |
+| Output | Structured (Pydantic model) |
+| Stack | WorkflowStack |
+
+**Features:**
+- Extracts entities from AI analysis results using structured output
+- Supports **test mode** (`mode: "test"`) that returns entities without saving to S3 (for prompt tuning)
+- Saves `graph_entities` to S3 segment data
+
+### 4. GraphBuilder Lambda (Step Functions)
+
+Runs after Distributed Map completion and before DocumentSummarizer.
 
 | Item | Value |
 |------|-------|
@@ -170,38 +204,51 @@ Runs after Map(SegmentAnalyzer) completion and before DocumentSummarizer in the 
 
 1. **Create Document + Segment structure** — Create document/segment nodes and BELONGS_TO, NEXT relationships in Neptune
 2. **Load segment analysis results from S3** — Collect analysis data from all segments
-3. **Create Analysis nodes** — Batch create Analysis nodes per QA pair (200 per batch)
-4. **Collect Entities/Relationships** — Gather entities and relationships already extracted per segment by AnalysisFinalizer
-5. **Entity deduplication** — Merge identical entities by name
-6. **Batch save to Neptune** — Save Entities and Relationships in batches of 50, up to 10 parallel workers
+3. **Create Analysis nodes** — Batch create Analysis nodes per QA pair
+4. **Collect entities** — Gather `graph_entities` already extracted per segment by EntityExtractor
+5. **Deduplicate** — Merge identical entities by name (case-insensitive)
+6. **Normalize → Core entities** — LLM groups related entities loosely (notation variants, morphological variants, conceptual containment). One entity can belong to multiple core entity groups. Core entities absorb members' mentioned_in lists.
+7. **Store core entity names in LanceDB** — `add_graph_keywords` for cross-document keyword search
+8. **Save work files to S3** — `entities.json` and `analyses.json` for GraphBatchSender
 
-### 4. Graph MCP Tool
+### 5. Search MCP Graph Tools
 
-MCP tool used by the AI agent to perform graph traversal.
+Graph search tools used by the AI agent, integrated into the Search MCP Lambda.
 
 | Item | Value |
 |------|-------|
 | Stack | McpStack |
 | Runtime | Node.js 22.x (ARM64) |
-| Timeout | 30s |
+| Timeout | 5 min |
 
 **Tools:**
 
 | MCP Tool | Description |
 |----------|-------------|
-| `graph_search` | Traverse the graph using vector search QA IDs as starting points to discover related pages |
-| `link_documents` | Create manual document-to-document links (with reason) |
-| `unlink_documents` | Delete document-to-document links |
-| `get_linked_documents` | Query document link relationships |
+| `graph_traverse` | Traverse the graph using search result QA IDs as starting points to discover related pages |
+| `graph_keyword` | Search core entities by keyword similarity in LanceDB, then find connected pages via Neptune |
 
-**graph_search Flow:**
+**graph_traverse Flow:**
 
 ```
-1. Use QA IDs from vector search results as starting points
-2. QA ID → Analysis node → MENTIONED_IN ← Entity node
-3. Entity → RELATES_TO → Related Entity → MENTIONED_IN → Other Analysis
-4. Fetch segment content from LanceDB for discovered segments
-5. Summarize results with Bedrock Claude Haiku
+1. Receive qa_ids from search___summarize results
+2. QA ID → Analysis node → MENTIONED_IN ← Entity node (all entities, no limit)
+3. Entity → MENTIONED_IN → Other Analysis → Segment (single UNWIND query)
+4. Exclude source segments, filter by document_id
+5. Fetch segment content from LanceDB (get_by_segment_ids)
+6. Summarize with Bedrock Claude Haiku
+7. Filter sources to only Haiku-cited segments
+```
+
+**graph_keyword Flow:**
+
+```
+1. Receive keyword query
+2. Search LanceDB graph_keywords by embedding similarity (top 3)
+3. Hash matched entity names → Neptune entity ~id (SHA256)
+4. Query Neptune: Entity → MENTIONED_IN → Analysis (get qa_ids)
+5. Fetch content from LanceDB (get_by_qa_ids)
+6. Summarize with Bedrock Claude Haiku
 ```
 
 ---
@@ -210,25 +257,38 @@ MCP tool used by the AI agent to perform graph traversal.
 
 ### When Extraction Happens
 
-Entity extraction runs in the **AnalysisFinalizer** Lambda, parallelized per segment. Since it runs inside Step Functions' Distributed Map, up to 30 segments extract entities concurrently.
+Entity extraction runs in the **EntityExtractor** Lambda, parallelized per segment alongside AnalysisFinalizer and PageDescriptionGenerator. Since it runs inside Step Functions' Distributed Map, up to 30 segments extract entities concurrently.
 
 ### Extraction Method
 
-Uses Strands Agent for LLM-based entity and relationship extraction.
+Uses Strands Agent with Pydantic structured output for reliable JSON responses.
 
 | Item | Value |
 |------|-------|
-| Model | Bedrock (configurable) |
-| Framework | Strands SDK (Agent) |
+| Model | Bedrock Haiku 4.5 |
+| Framework | Strands SDK (Agent + structured_output_model) |
 | Input | Segment AI analysis results + page description |
-| Output | `entities[]` + `relationships[]` (JSON) |
+| Output | `entities[]` (Pydantic EntityExtractionResult) |
 
-### Extraction Rules
+### Core Entity Normalization
 
-- Entity names use canonical forms (e.g., "the transformer model" → "Transformer")
-- Generic references are excluded (e.g., "Figure 1", "Table 2", "the author")
-- Entity names, context, and relationship labels are written in the document language
-- Every QA pair is guaranteed to have at least one entity connection
+After all segments are processed, GraphBuilder normalizes entities using LLM:
+
+| Item | Value |
+|------|-------|
+| Model | Bedrock Sonnet 4.6 (1M context) |
+| Framework | Strands SDK (Agent + structured_output_model) |
+| Input | All deduplicated entities with contexts + existing LanceDB keywords |
+| Output | Core entity groups (NormalizationResult) |
+
+**Normalization rules:**
+- Group liberally — over-connecting is better than missing connections
+- Notation variants (spacing, punctuation, abbreviations)
+- Morphological variants (singular/plural, verb/noun forms)
+- Conceptual containment (a specific term contains a broader concept)
+- Cross-language variants
+- One entity can belong to multiple core groups
+- Core entity name uses member name or well-known standard term
 
 ### Extraction Result Example
 
@@ -236,25 +296,27 @@ Uses Strands Agent for LLM-based entity and relationship extraction.
 {
   "entities": [
     {
-      "name": "Amazon Bedrock",
+      "name": "AWS Prototyping",
       "mentioned_in": [
         {
-          "segment_index": 0,
+          "segment_index": 1,
           "qa_index": 0,
-          "confidence": 0.95,
-          "context": "Used as AI model hosting platform"
+          "context": "AWS prototyping program and methodology"
         }
       ]
     }
-  ],
-  "relationships": [
-    {
-      "source": "Amazon Bedrock",
-      "target": "Claude",
-      "relationship": "hosts"
-    }
   ]
 }
+```
+
+### Core Entity Normalization Example
+
+```
+Input entities: Prototype (page 0), AWS Prototyping (page 1), AWS (page 0), Amazon Web Services (page 1)
+
+Core entities:
+  - "Prototyping" → [Prototype, AWS Prototyping] → connected to pages 0, 1
+  - "AWS" → [AWS, Amazon Web Services, AWS Prototyping] → connected to pages 0, 1
 ```
 
 ---
@@ -291,7 +353,7 @@ VPC (10.0.0.0/16)
       └─ GraphService Lambda (SG: VPC CIDR → 8182 allowed)
 ```
 
-Only the GraphService Lambda is deployed in the VPC. GraphBuilder Lambda and Graph MCP Lambda call GraphService via Lambda invoke from outside the VPC.
+Only the GraphService Lambda is deployed in the VPC. GraphBuilder Lambda and Search MCP Lambda call GraphService via Lambda invoke from outside the VPC.
 
 ### SSM Parameters
 
@@ -310,12 +372,13 @@ Only the GraphService Lambda is deployed in the VPC. GraphBuilder Lambda and Gra
 ```mermaid
 graph TB
     subgraph Build["Graph Build (Step Functions)"]
-        AF["AnalysisFinalizer<br/>(Entity Extraction)"]
-        GB["GraphBuilder<br/>(Collection + Dedup)"]
+        EE["EntityExtractor<br/>(Entity Extraction)"]
+        GB["GraphBuilder<br/>(Normalization + Core Entities)"]
     end
 
     subgraph Search["Graph Search (Agent)"]
-        GMCP["Graph MCP Tool"]
+        GT["graph_traverse<br/>(Search MCP)"]
+        GK["graph_keyword<br/>(Search MCP)"]
     end
 
     subgraph Viz["Graph Visualization (Frontend)"]
@@ -328,11 +391,15 @@ graph TB
 
     subgraph Storage["Storage Layer"]
         Neptune["Neptune DB Serverless"]
+        LanceDB["LanceDB (graph_keywords)"]
     end
 
-    AF -->|"invoke<br/>(via qa-regenerator)"| GS
-    GB -->|"invoke<br/>(add_entities, add_relationships)"| GS
-    GMCP -->|"invoke<br/>(search_graph)"| GS
+    EE -->|"S3<br/>(graph_entities)"| GB
+    GB -->|"invoke<br/>(add_entities)"| GS
+    GB -->|"invoke<br/>(add_graph_keywords)"| LanceDB
+    GT -->|"invoke<br/>(search_graph)"| GS
+    GK -->|"invoke<br/>(search_graph_keywords)"| LanceDB
+    GK -->|"invoke<br/>(raw_query)"| GS
     BE -->|"invoke<br/>(get_entity_graph, get_document_graph)"| GS
 
     GS -->|"openCypher<br/>(IAM SigV4)"| Neptune
@@ -347,7 +414,8 @@ graph TB
 | Component | Stack | Access Type | Description |
 |-----------|-------|-------------|-------------|
 | **GraphService** | WorkflowStack | Read/Write | Core Neptune gateway (inside VPC) |
-| **GraphBuilder** | WorkflowStack | Write (via GraphService) | Graph construction in Step Functions |
-| **AnalysisFinalizer** | WorkflowStack | Write (via GraphService) | Per-segment entity extraction + graph updates on QA regeneration |
-| **Graph MCP Tool** | McpStack | Read (via GraphService) | Agent graph traversal tool |
+| **EntityExtractor** | WorkflowStack | Write (S3) | Per-segment entity extraction (parallel) |
+| **GraphBuilder** | WorkflowStack | Write (via GraphService + LanceDB) | Core entity normalization + graph construction |
+| **graph_traverse** | McpStack | Read (via GraphService + LanceDB) | Agent graph traversal from search results |
+| **graph_keyword** | McpStack | Read (via LanceDB + GraphService) | Agent keyword-based graph search |
 | **Backend API** | ApplicationStack | Read (via GraphService) | Frontend graph visualization |

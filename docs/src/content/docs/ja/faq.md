@@ -149,7 +149,7 @@ Lambda環境変数を直接修正すると、次回のCDKデプロイ時にmodel
 | **PaddleOCR** | Lambda（Rust、MNN推論）またはSageMaker（GPU）で実行されるオープンソースOCR。80以上の言語をサポート。テキスト抽出に最適化 |
 | **Bedrock Data Automation（BDA）** | AWS管理サービス。ドキュメント構造（テーブル、フォームなど）を一緒に分析。プロジェクト設定で選択可能 |
 
-> 詳細は[PaddleOCR on SageMaker](./ocr.md)を参照してください。
+> 詳細は[OCR on SageMaker](./ocr.md)を参照してください。
 
 ### 動画/音声ファイルはどのように分析されますか？
 
@@ -255,7 +255,7 @@ aws lambda invoke --function-name idp-v2-lancedb-service \
 
 ```bash
 aws lambda invoke --function-name idp-v2-lancedb-service \
-    --payload '{"action": "get_segments", "params": {"project_id": "YOUR_PROJECT_ID", "workflow_id": "YOUR_WORKFLOW_ID"}}' \
+    --payload '{"action": "get_segments_by_document_id", "params": {"project_id": "YOUR_PROJECT_ID", "document_id": "YOUR_DOCUMENT_ID"}}' \
     --cli-binary-format raw-in-base64-out \
     /dev/stdout 2>/dev/null | jq .
 ```

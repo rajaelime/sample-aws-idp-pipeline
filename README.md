@@ -66,13 +66,14 @@ An AI-powered IDP prototype that transforms unstructured data into actionable in
   - Lindera / ICU4X tokenizer for keyword extraction
   - Result reranking with Bedrock Cohere Rerank v3.5
 
-- **Knowledge Graph**
-  - Neptune DB Serverless for entity and relationship storage
-  - LLM-based entity extraction and relationship mapping (auto-built during analysis)
-  - Graph traversal to discover related pages across documents
+- **[Knowledge Graph](docs/src/content/docs/en/graphdb.md)**
+  - Neptune DB Serverless for core entity storage
+  - LLM-based entity extraction (parallel per segment) + core entity normalization
+  - Core entities stored in LanceDB for cross-document keyword search
+  - Graph traversal and keyword graph search to discover related pages
   - Project-level and document-level graph visualization
 
-- **AI Chat (Agent Core)**
+- **[AI Chat (Agent Core)](docs/src/content/docs/en/agent.md)**
   - IDP Agent on Bedrock Agent Core
   - Tool invocation via MCP Gateway (search, graph, artifact management)
   - S3-based session management for conversation continuity
@@ -113,7 +114,7 @@ An AI-powered IDP prototype that transforms unstructured data into actionable in
 ├── LanceServiceStack     - LanceDB Service (Rust) + Toka tokenizer (Rust)
 ├── WorkflowStack         - Step Functions workflow (Distributed Map)
 ├── WebsocketStack        - WebSocket API, real-time notifications
-├── McpStack              - MCP Gateway (search, graph, artifact tools)
+├── McpStack              - MCP Gateway (search, graph traverse, keyword graph, artifact tools)
 ├── WorkerStack           - WebSocket message processing
 ├── AgentStack            - Bedrock Agent Core (IDP Agent)
 ├── WebcrawlerStack       - Web crawling agent (Bedrock Agent Core)
@@ -140,11 +141,14 @@ S3 Upload (Presigned URL)
       Segment Prep -> Wait for Preprocess -> Format Parser -> Build Segments
         -> Distributed Map (max 30)
             +- Segment Analyzer (Claude Sonnet 4.6 Vision / Pegasus 1.2 / Nova Lite 2)
-            '- Analysis Finalizer -> SQS -> LanceDB Writer
+            '- Parallel:
+                +- Analysis Finalizer -> SQS -> LanceDB Writer
+                +- Page Description Generator (Haiku 4.5)
+                '- Entity Extractor (Haiku 4.5)
         -> Document Summarizer (Claude Sonnet 4.6)
             -> Vector Embedding (Nova 1024d) -> LanceDB
-        -> Graph Builder (Entity Extraction)
-            -> Neptune DB (entities, relationships)
+        -> Graph Builder (Core Entity Normalization + LanceDB Keywords)
+            -> Neptune DB (core entities)
 ```
 
 #### 2. Real-time Notifications (WebSocket)
@@ -172,7 +176,8 @@ User Query
       '- IDP Agent (Claude Sonnet 4.6)
           -> MCP Gateway
             +- Search Tool Lambda -> LanceDB Service -> Hybrid Search (Vector + FTS)
-            +- Graph Tool Lambda  -> Graph Service   -> Neptune (graph traversal)
+            +- Search Tool Lambda -> Graph Service   -> Neptune (graph traversal)
+            +- Search Tool Lambda -> LanceDB Service -> Keyword Graph Search
             +- Artifact Tool Lambda -> S3
             '- Code Interpreter -> Python execution
           -> S3 (Session Load/Save)
@@ -322,9 +327,9 @@ pnpm nx lint @idp-v2/infra --configuration=fix  # Auto-fix
 
 | Tool | Description |
 |------|-------------|
-| search_documents | Hybrid search across project documents (Vector + FTS + Rerank) |
-| graph_search | Knowledge graph traversal to discover related pages |
-| link_documents / unlink_documents | Manual document relationship management |
+| summarize | Hybrid search across project documents (Vector + FTS + Rerank) |
+| graph_traverse | Knowledge graph traversal from search results to discover related pages |
+| graph_keyword | Keyword similarity search via LanceDB graph keywords + Neptune traversal |
 | overview | Project document overview and summaries |
 | save/load/edit_markdown | Create and edit markdown artifacts |
 | create_pdf, extract_pdf_text/tables | PDF generation and extraction |
@@ -350,8 +355,7 @@ sample-aws-idp-pipeline/
 |   |   +-- routes/                # Page routes
 |   |   '-- components/            # React components
 |   +-- lambda/                    # MCP tool Lambdas
-|   |   +-- search-mcp/            # Search tool (hybrid search + summarize)
-|   |   '-- graph-mcp/             # Graph tool (Neptune traversal)
+|   |   '-- search-mcp/            # Search tools (hybrid search, graph traverse, keyword graph)
 |   '-- infra/src/
 |       +-- stacks/                # 14 CDK stacks
 |       +-- functions/             # Python Lambda functions

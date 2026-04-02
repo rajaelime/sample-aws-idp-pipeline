@@ -149,7 +149,7 @@ Lambda 환경변수를 직접 수정하면 다음 CDK 배포 시 models.json 값
 | **PaddleOCR** | Lambda(Rust, MNN 추론) 또는 SageMaker(GPU)에서 실행되는 오픈소스 OCR. 80개 이상 언어 지원. 텍스트 추출에 최적화 |
 | **Bedrock Data Automation (BDA)** | AWS 관리형 서비스. 문서 구조(테이블, 양식 등)를 함께 분석. 프로젝트 설정에서 선택 가능 |
 
-> 상세 내용은 [PaddleOCR on SageMaker](./ocr.md)를 참고하세요.
+> 상세 내용은 [OCR on SageMaker](./ocr.md)를 참고하세요.
 
 ### 영상/음성 파일은 어떻게 분석되나요?
 
@@ -255,7 +255,7 @@ aws lambda invoke --function-name idp-v2-lancedb-service \
 
 ```bash
 aws lambda invoke --function-name idp-v2-lancedb-service \
-    --payload '{"action": "get_segments", "params": {"project_id": "YOUR_PROJECT_ID", "workflow_id": "YOUR_WORKFLOW_ID"}}' \
+    --payload '{"action": "get_segments_by_document_id", "params": {"project_id": "YOUR_PROJECT_ID", "document_id": "YOUR_DOCUMENT_ID"}}' \
     --cli-binary-format raw-in-base64-out \
     /dev/stdout 2>/dev/null | jq .
 ```
