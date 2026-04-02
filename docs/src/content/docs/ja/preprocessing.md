@@ -64,7 +64,7 @@ PDFと画像からテキストを抽出します。Lambda（CPU）またはSageM
 
 プロジェクトの言語設定に応じてOCR言語が自動マッピングされます（韓国語 → `korean`、日本語 → `japan` など）。
 
-> 詳細は[PaddleOCR on SageMaker](./ocr.md)を参照してください。
+> 詳細は[OCR on SageMaker](./ocr.md)を参照してください。
 
 ### Bedrock Data Automation（BDA）
 

@@ -28,8 +28,7 @@ AWS Bedrock AgentCore
   │       └─ 組み込みツール（Strands SDK）
   │
   ├─ MCP Gateway（IAM SigV4認証）
-  │   ├─ Search MCP（LanceDBハイブリッド検索）
-  │   ├─ Graph MCP（Neptuneグラフ探索）
+  │   ├─ Search MCP（ハイブリッド検索、graph traverse、keyword graph）
   │   ├─ Image MCP（画像分析）
   │   ├─ QA MCP（QA分析管理）
   │   └─ Document MCP（PDF/DOCX/PPTX/MD）

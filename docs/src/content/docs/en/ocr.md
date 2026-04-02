@@ -1,6 +1,6 @@
 ---
-title: "PaddleOCR on SageMaker"
-description: "PaddleOCR Processing Pipeline on SageMaker Async Inference Endpoint"
+title: "OCR on SageMaker"
+description: "OCR Processing Pipeline on SageMaker Async Inference Endpoint"
 ---
 
 ## Overview

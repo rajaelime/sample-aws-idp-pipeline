@@ -29,7 +29,7 @@ The agent operates in **skill** units. Skills are markdown files defined in `.sk
 
 | Skill | Purpose | Tools Used |
 |---|---|---|
-| **search** | Document search + web search strategy | Search MCP, Graph MCP, DuckDuckGo |
+| **search** | Document search + web search strategy | Search MCP (summarize, graph_traverse, graph_keyword), DuckDuckGo |
 | **docx** | Word document creation/editing | Code Interpreter (python-docx) |
 | **xlsx** | Excel spreadsheet creation/editing | Code Interpreter (openpyxl) |
 | **pptx** | PowerPoint creation/editing | Code Interpreter (python-pptx) |
@@ -45,7 +45,7 @@ User: "Summarize the V-101 valve analysis results in Word"
   │
   ├─ [1] Load search skill → document search
   │   ├─ Search MCP (summarize) → vector + FTS search
-  │   └─ Graph MCP (graph_search) → entity connection traversal
+  │   └─ Search MCP (graph_traverse) → entity connection traversal
   │
   ├─ [2] Load docx skill → Word document creation
   │   └─ Code Interpreter → write document with python-docx → S3 upload
@@ -66,15 +66,9 @@ MCP tools accessed through the AgentCore Gateway.
 | Tool | Description |
 |---|---|
 | `summarize` | Hybrid search (vector + FTS) → Haiku summarization, returns qa_ids |
+| `graph_traverse` | Entity graph traversal based on qa_ids, discovers related pages |
+| `graph_keyword` | Keyword similarity search via LanceDB graph keywords + Neptune traversal |
 | `overview` | List project documents |
-
-### Graph MCP
-
-| Tool | Description |
-|---|---|
-| `graph_search` | Entity graph traversal based on qa_ids, discovers related pages |
-| `link_documents` | Create document-to-document links |
-| `unlink_documents` | Remove document-to-document links |
 
 ### Document MCP
 

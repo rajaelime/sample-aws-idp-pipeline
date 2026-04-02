@@ -39,7 +39,7 @@ Before the Segment Analyzer begins, multiple preprocessors extract information f
 
 ### PaddleOCR
 
-Extracts text from documents and images. See [PaddleOCR on SageMaker](./ocr.md) for details.
+Extracts text from documents and images. See [OCR on SageMaker](./ocr.md) for details.
 
 ### Bedrock Data Automation (Optional)
 
