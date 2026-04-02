@@ -1,4 +1,4 @@
-import { Duration } from 'aws-cdk-lib';
+import { ArnFormat, Duration, Stack } from 'aws-cdk-lib';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Runtime, Architecture } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
@@ -29,10 +29,12 @@ export class SearchMcp extends Construct {
       SSM_KEYS.LANCE_SERVICE_FUNCTION_ARN,
     );
 
-    const graphServiceFunctionArn = StringParameter.valueForStringParameter(
-      this,
-      SSM_KEYS.GRAPH_SERVICE_FUNCTION_ARN,
-    );
+    const graphServiceFunctionArn = Stack.of(this).formatArn({
+      service: 'lambda',
+      resource: 'function',
+      resourceName: 'idp-v2-graph-service',
+      arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+    });
 
     this.function = new NodejsFunction(this, 'Function', {
       entry: path.resolve(
