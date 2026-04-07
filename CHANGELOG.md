@@ -1,3 +1,10 @@
+## 0.2.5 (Draft)
+
+### Agent
+
+- Replace custom skills system with Strands built-in `AgentSkills` plugin
+- Upgrade `strands-agents` to 1.34.1
+
 ## 0.2.4 (2026-04-02)
 
 ### Knowledge Graph
