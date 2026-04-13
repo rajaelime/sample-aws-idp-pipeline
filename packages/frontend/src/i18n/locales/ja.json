@@ -471,6 +471,7 @@
     "heroDescription": "会話中に作成されたすべてのアーティファクトを閲覧・管理できます。\n生成されたコンテンツをすばやくコピー、ダウンロード、整理できます。",
     "description": "生成されたアーティファクトの表示と管理",
     "searchPlaceholder": "アーティファクトを検索...",
+    "refresh": "更新",
     "noArtifacts": "アーティファクトがありません",
     "noArtifactsDescription": "チャット会話中に生成されたアーティファクトがここに表示されます。",
     "noMatchingArtifacts": "一致するアーティファクトがありません",
