@@ -8,6 +8,7 @@ description: "Word document (.docx) creation, editing, reading, and manipulation
 ## Execution Rules
 
 - **ALL code execution MUST use the `code_interpreter` tool.** Do NOT use the `shell` tool.
+- **NEVER call `!pip install`.** `python-docx`, `boto3`, `pandas`, `openpyxl`, `Pillow`, `matplotlib`, `numpy`, `requests`, `lxml` are pre-installed in the AgentCore Code Interpreter sandbox. Import directly. If an import fails, stop and report the error to the user — do not attempt to install anything.
 - **Generate the COMPLETE document and upload to S3 in a SINGLE `code_interpreter` call.** Do NOT split into multiple calls.
 - Before calling `code_interpreter`, call `artifact_path(filename="report.docx")` to get the S3 bucket and key.
 - After completion, report the `artifact_ref` to the user.
@@ -20,8 +21,6 @@ description: "Word document (.docx) creation, editing, reading, and manipulation
 3. Call `code_interpreter` ONCE with a single script that does everything: create the document, save it, and upload to S3.
 
 ```python
-!pip install python-docx
-
 from docx import Document
 import boto3
 
@@ -88,8 +87,6 @@ Only fall back to the `chart` skill if a standalone chart artifact is explicitly
 Read .docx files by downloading from the given S3 path and using `python-docx` in `code_interpreter`.
 
 ```python
-!pip install python-docx
-
 import boto3
 from docx import Document
 from io import BytesIO
@@ -116,8 +113,6 @@ Generate .docx files with `python-docx` in code_interpreter.
 
 ### Setup
 ```python
-!pip install python-docx
-
 from docx import Document
 from docx.shared import Inches, Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -437,7 +432,4 @@ Without the `<w:del/>` in `<w:pPr><w:rPr>`, accepting changes leaves an empty pa
 
 ## Dependencies
 
-All dependencies should be installed within code_interpreter:
-```python
-!pip install python-docx
-```
+`python-docx`, `boto3`, `Pillow`, `lxml`, `matplotlib`, `requests` are pre-installed in the Code Interpreter sandbox. Do NOT call `!pip install` — import directly.
