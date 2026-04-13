@@ -8,6 +8,7 @@ description: "Excel spreadsheet (.xlsx) creation, editing, reading, and manipula
 ## Execution Rules
 
 - **ALL code execution MUST use the `code_interpreter` tool.** Do NOT use the `shell` tool.
+- **NEVER call `!pip install`.** `openpyxl`, `pandas`, `boto3`, `numpy`, `Pillow`, `matplotlib`, `lxml` are pre-installed in the AgentCore Code Interpreter sandbox. Import directly. If an import fails, stop and report the error to the user — do not attempt to install anything.
 - **Generate the COMPLETE spreadsheet and upload to S3 in a SINGLE `code_interpreter` call.** Do NOT split into multiple calls.
 - Before calling `code_interpreter`, call `artifact_path(filename="spreadsheet.xlsx")` to get the S3 bucket and key.
 - After completion, report the `artifact_ref` to the user.
@@ -20,8 +21,6 @@ description: "Excel spreadsheet (.xlsx) creation, editing, reading, and manipula
 3. Call `code_interpreter` ONCE with a single script that does everything: create the spreadsheet, save it, and upload to S3.
 
 ```python
-!pip install openpyxl
-
 from openpyxl import Workbook
 import boto3
 
@@ -181,8 +180,6 @@ Read .xlsx files by downloading from the given S3 path and using tools in `code_
 ### Data analysis with pandas
 
 ```python
-!pip install pandas openpyxl
-
 import boto3
 import pandas as pd
 
@@ -230,8 +227,6 @@ Formulas are stored as strings by openpyxl and recalculated automatically when t
 ### Creating new Excel files
 
 ```python
-!pip install openpyxl
-
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import boto3
@@ -265,8 +260,6 @@ with open('./output.xlsx', 'rb') as f:
 ### Editing existing Excel files
 
 ```python
-!pip install openpyxl
-
 from openpyxl import load_workbook
 import boto3
 
@@ -328,8 +321,4 @@ with open('./modified.xlsx', 'rb') as f:
 
 ## Dependencies
 
-All dependencies should be installed within code_interpreter:
-```python
-!pip install openpyxl
-!pip install pandas
-```
+`openpyxl`, `pandas`, `boto3`, `numpy`, `Pillow`, `matplotlib` are pre-installed in the Code Interpreter sandbox. Do NOT call `!pip install` — import directly.
