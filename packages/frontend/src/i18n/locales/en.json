@@ -471,6 +471,7 @@
     "heroDescription": "Browse and manage all artifacts created during your conversations.\nQuickly copy, download, or organize your generated content.",
     "description": "View and manage generated artifacts",
     "searchPlaceholder": "Search artifacts...",
+    "refresh": "Refresh",
     "noArtifacts": "No artifacts yet",
     "noArtifactsDescription": "Artifacts generated during chat conversations will appear here.",
     "noMatchingArtifacts": "No matching artifacts",

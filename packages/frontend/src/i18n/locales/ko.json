@@ -471,6 +471,7 @@
     "heroDescription": "대화 중에 생성된 모든 아티팩트를 탐색하고 관리하세요.\n생성된 콘텐츠를 빠르게 복사, 다운로드하거나 정리할 수 있습니다.",
     "description": "생성된 아티팩트 보기 및 관리",
     "searchPlaceholder": "아티팩트 검색...",
+    "refresh": "새로고침",
     "noArtifacts": "아티팩트가 없습니다",
     "noArtifactsDescription": "채팅 대화 중에 생성된 아티팩트가 여기에 표시됩니다.",
     "noMatchingArtifacts": "일치하는 아티팩트가 없습니다",

@@ -488,6 +488,7 @@ interface SidePanelProps {
   onArtifactCopy?: (artifact: Artifact) => void;
   onArtifactDownload?: (artifact: Artifact) => void;
   onArtifactDelete?: (artifactId: string) => Promise<void>;
+  onRefreshArtifacts?: () => void;
   onCollapse?: () => void;
   documents?: Document[];
   workflows?: Workflow[];
@@ -507,6 +508,7 @@ export default function SidePanel({
   onArtifactCopy,
   onArtifactDownload,
   onArtifactDelete,
+  onRefreshArtifacts,
   onCollapse,
   documents = [],
   workflows = [],
@@ -1049,6 +1051,15 @@ export default function SidePanel({
             >
               <Search className="h-3.5 w-3.5" />
             </button>
+            {onRefreshArtifacts && (
+              <button
+                onClick={onRefreshArtifacts}
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 rounded transition-colors flex-shrink-0"
+                title={t('artifacts.refresh', 'Refresh')}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+            )}
             <div className="flex-1" />
             <span className="text-xs text-slate-400">
               {artSearchQuery
