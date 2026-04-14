@@ -18,6 +18,7 @@ from prompts import build_system_prompt
 from tools.artifact import create_artifact_path_tool
 
 from .image_artifact_saver_hook import ImageArtifactSaverHook
+from .syntax_check_hook import SyntaxCheckHook
 from .tool_parameter_enforcer_hook import ToolParameterEnforcerHook
 
 
@@ -135,6 +136,7 @@ def get_agent(
     hooks: list[HookProvider] = [
         ToolParameterEnforcerHook(user_id=user_id, project_id=project_id),
         ImageArtifactSaverHook(user_id=user_id, project_id=project_id),
+        SyntaxCheckHook(),
     ]
 
     skills_plugin = AgentSkills(skills="./.skills/")
