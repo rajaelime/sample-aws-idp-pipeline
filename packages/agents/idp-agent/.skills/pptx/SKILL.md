@@ -1,7 +1,6 @@
 ---
 name: pptx
-description: "PowerPoint presentation (.pptx) creation, editing, reading, and manipulation skill."
-whenToUse: "Use when the user wants to create, read, edit, or manipulate PowerPoint presentations (.pptx files). Triggers include: any mention of 'slides', 'deck', 'presentation', '.pptx', or requests for slide decks, pitch decks. Also for deliverables as .pptx. When an S3 URI with .pptx extension is provided. Do NOT use for PDFs, Word documents, or Google Slides."
+description: "PowerPoint presentation (.pptx) creation, editing, reading, and manipulation skill. Use when the user wants to create, read, edit, or manipulate PowerPoint presentations (.pptx files). Triggers include: any mention of 'slides', 'deck', 'presentation', '.pptx', or requests for slide decks, pitch decks. Also for deliverables as .pptx. When an S3 URI with .pptx extension is provided. Do NOT use for PDFs, Word documents, or Google Slides."
 ---
 
 # PPTX creation, editing, and analysis
@@ -9,6 +8,7 @@ whenToUse: "Use when the user wants to create, read, edit, or manipulate PowerPo
 ## Execution Rules
 
 - **ALL code execution MUST use the `code_interpreter` tool.** Do NOT use the `shell` tool.
+- **NEVER call `!pip install`.** `python-pptx`, `boto3`, `Pillow`, `lxml`, `matplotlib`, `numpy`, `requests`, `markitdown` are pre-installed in the AgentCore Code Interpreter sandbox. Import directly. If an import fails, stop and report the error to the user — do not attempt to install anything.
 - **Generate the COMPLETE presentation and upload to S3 in a SINGLE `code_interpreter` call.** Do NOT split into multiple calls.
 - Before calling `code_interpreter`, call `artifact_path(filename="presentation.pptx")` to get the S3 bucket and key.
 - After completion, report the `artifact_ref` to the user.
@@ -21,8 +21,6 @@ whenToUse: "Use when the user wants to create, read, edit, or manipulate PowerPo
 3. Call `code_interpreter` ONCE with a single script that does everything: create the presentation, save it, and upload to S3.
 
 ```python
-!pip install python-pptx
-
 from pptx import Presentation
 import boto3
 
@@ -84,8 +82,6 @@ slide.shapes.add_chart(
 Read .pptx files by downloading from the given S3 path and using tools in `code_interpreter`.
 
 ```python
-!pip install "markitdown[pptx]"
-
 import boto3
 
 s3 = boto3.client('s3')
@@ -308,8 +304,6 @@ Your first render is almost never correct. Approach QA as a bug hunt, not a conf
 ### Content QA
 
 ```python
-!pip install "markitdown[pptx]"
-
 import subprocess
 result = subprocess.run(['python', '-m', 'markitdown', 'output.pptx'], capture_output=True, text=True)
 print(result.stdout)
@@ -360,10 +354,4 @@ This checks for:
 
 ## Dependencies
 
-All dependencies should be installed within code_interpreter:
-```python
-!pip install "markitdown[pptx]"
-!pip install python-pptx
-!pip install Pillow
-!pip install lxml
-```
+`python-pptx`, `markitdown`, `Pillow`, `lxml`, `boto3`, `matplotlib`, `requests` are pre-installed in the Code Interpreter sandbox. Do NOT call `!pip install` — import directly.

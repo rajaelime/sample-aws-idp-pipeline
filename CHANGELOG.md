@@ -1,3 +1,20 @@
+## 0.2.5 (2026-04-14)
+
+### Agent
+
+- Replace custom skills system with Strands built-in `AgentSkills` plugin (#278)
+- Upgrade `strands-agents` to 1.34.1
+- Add `SyntaxCheckHook` — pre-flight `compile()` check on `code_interpreter` calls, cancels with clean error on `SyntaxError` before reaching the AgentCore sandbox (#287)
+- Remove `!pip install` directives from `docx`/`pptx`/`xlsx`/`chart` SKILL.md files; rely on AgentCore Code Interpreter pre-installed libraries (#282)
+
+### Bug Fixes
+
+- Fix `/chat/projects/{id}/sessions/{id}` 500 error: change `ChatMessage.created_at`/`updated_at` to `datetime` to match DuckDB's auto-parsed timestamp type (#283)
+
+### UI
+
+- Add manual refresh button to the Artifacts side panel for cases when WebSocket `created` events are missed (#283)
+
 ## 0.2.4 (2026-04-02)
 
 ### Knowledge Graph

@@ -1,10 +1,9 @@
 from contextlib import ExitStack, contextmanager
-from venv import create
 
 import boto3
 from botocore.config import Config as BotocoreConfig
 from mcp import StdioServerParameters, stdio_client
-from strands import Agent
+from strands import Agent, AgentSkills
 from strands.hooks.registry import HookProvider
 from strands.models import BedrockModel
 from strands.session import S3SessionManager
@@ -19,6 +18,7 @@ from prompts import build_system_prompt
 from tools.artifact import create_artifact_path_tool
 
 from .image_artifact_saver_hook import ImageArtifactSaverHook
+from .syntax_check_hook import SyntaxCheckHook
 from .tool_parameter_enforcer_hook import ToolParameterEnforcerHook
 
 
@@ -136,7 +136,10 @@ def get_agent(
     hooks: list[HookProvider] = [
         ToolParameterEnforcerHook(user_id=user_id, project_id=project_id),
         ImageArtifactSaverHook(user_id=user_id, project_id=project_id),
+        SyntaxCheckHook(),
     ]
+
+    skills_plugin = AgentSkills(skills="./.skills/")
 
     def create_agent():
         return Agent(
@@ -144,6 +147,7 @@ def get_agent(
             system_prompt=system_prompt,
             tools=tools,
             hooks=hooks,
+            plugins=[skills_plugin],
             session_manager=session_manager,
             agent_id=agent_id or "default",
         )

@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
@@ -15,8 +16,8 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 class ChatMessage(BaseModel):
     role: str
     content: list[ContentItem]
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
 
 class ChatHistoryResponse(BaseModel):

@@ -396,6 +396,7 @@ function ProjectDetailPage() {
                     onArtifactSelect={artifactsHook.handleArtifactSelect}
                     onArtifactDownload={artifactsHook.handleArtifactDownload}
                     onArtifactDelete={artifactsHook.handleArtifactDelete}
+                    onRefreshArtifacts={artifactsHook.loadArtifacts}
                     onCollapse={() => panelLayout.setSidePanelCollapsed(true)}
                     documents={documentsHook.documents}
                     workflows={documentsHook.workflows}
