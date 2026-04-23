@@ -1,11 +1,7 @@
 import { Duration, Stack, StackProps } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { StringParameter } from 'aws-cdk-lib/aws-ssm';
-import {
-  ElastiCache,
-  S3Bucket,
-  SSM_KEYS,
-} from ':idp-v2/common-constructs';
+import { ElastiCache, S3Bucket, SSM_KEYS } from ':idp-v2/common-constructs';
 import {
   AttributeType,
   Billing,
