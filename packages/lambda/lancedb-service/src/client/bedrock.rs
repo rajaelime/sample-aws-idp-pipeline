@@ -3,40 +3,19 @@ use aws_sdk_bedrockruntime::primitives::Blob;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-const DEFAULT_MODEL_ID: &str = "amazon.nova-2-multimodal-embeddings-v1:0";
+const DEFAULT_MODEL_ID: &str = "amazon.titan-embed-text-v2:0";
 const EMBEDDING_DIMENSION: usize = 1024;
 
 #[derive(Serialize)]
 struct EmbeddingRequest<'a> {
-    #[serde(rename = "taskType")]
-    task_type: &'a str,
-    #[serde(rename = "singleEmbeddingParams")]
-    single_embedding_params: SingleEmbeddingParams<'a>,
-}
-
-#[derive(Serialize)]
-struct SingleEmbeddingParams<'a> {
-    #[serde(rename = "embeddingPurpose")]
-    embedding_purpose: &'a str,
-    #[serde(rename = "embeddingDimension")]
-    embedding_dimension: usize,
-    text: TextParam<'a>,
-}
-
-#[derive(Serialize)]
-struct TextParam<'a> {
-    #[serde(rename = "truncationMode")]
-    truncation_mode: &'a str,
-    value: &'a str,
+    #[serde(rename = "inputText")]
+    input_text: &'a str,
+    dimensions: usize,
+    normalize: bool,
 }
 
 #[derive(Deserialize)]
 struct EmbeddingResponse {
-    embeddings: Vec<EmbeddingEntry>,
-}
-
-#[derive(Deserialize)]
-struct EmbeddingEntry {
     embedding: Vec<f32>,
 }
 
@@ -49,15 +28,9 @@ pub async fn generate_embedding(client: &Client, text: &str) -> Result<Vec<f32>,
     info!("[generate_embedding] Invoking bedrock embedding, text length: {}", value.len());
 
     let request = EmbeddingRequest {
-        task_type: "SINGLE_EMBEDDING",
-        single_embedding_params: SingleEmbeddingParams {
-            embedding_purpose: "GENERIC_INDEX",
-            embedding_dimension: EMBEDDING_DIMENSION,
-            text: TextParam {
-                truncation_mode: "END",
-                value,
-            },
-        },
+        input_text: value,
+        dimensions: EMBEDDING_DIMENSION,
+        normalize: true,
     };
 
     let body = serde_json::to_vec(&request).unwrap();
@@ -70,8 +43,7 @@ pub async fn generate_embedding(client: &Client, text: &str) -> Result<Vec<f32>,
         .await?;
 
     let result: EmbeddingResponse = serde_json::from_slice(response.body().as_ref()).unwrap();
-    let embedding = result.embeddings.into_iter().next().unwrap().embedding;
-    info!("[generate_embedding] Got embedding with {} dimensions", embedding.len());
+    info!("[generate_embedding] Got embedding with {} dimensions", result.embedding.len());
 
-    Ok(embedding)
+    Ok(result.embedding)
 }

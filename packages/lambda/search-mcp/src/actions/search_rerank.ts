@@ -1,5 +1,4 @@
 import { invokeLanceDB } from '../lib/clients.js';
-import { rerankResults } from '../lib/rerank.js';
 import type { SearchInput, HybridResult } from '../types.js';
 
 export interface RerankOutput {
@@ -25,19 +24,13 @@ export const handler = async (event: SearchInput): Promise<RerankOutput> => {
 
   const results = (result.results ?? []) as HybridResult[];
 
-  if (results.length === 0) {
-    return { results: [] };
-  }
-
-  const reranked = await rerankResults(query, results, limit);
-
   return {
-    results: reranked.map((r) => ({
+    results: results.map((r) => ({
       document_id: r.document_id,
       segment_id: r.segment_id,
       qa_id: r.qa_id,
       content: r.content,
-      score: r.rerankScore,
+      score: r.score ?? 0,
     })),
   };
 };

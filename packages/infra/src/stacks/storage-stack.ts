@@ -4,7 +4,6 @@ import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import {
   ElastiCache,
   S3Bucket,
-  S3DirectoryBucket,
   SSM_KEYS,
 } from ':idp-v2/common-constructs';
 import {
@@ -146,20 +145,20 @@ export class StorageStack extends Stack {
       stringValue: backendTable.tableStreamArn!,
     });
 
-    // Express One Zone Storage Bucket
-    const expressStorage = new S3DirectoryBucket(this, 'ExpressStorage', {
+    // LanceDB Storage Bucket (standard S3, replaces S3 Express One Zone)
+    const expressStorage = new S3Bucket(this, 'ExpressStorage', {
       bucketPrefix: 'lancedb-ex',
-      availabilityZoneId: 'use1-az4',
+      bucketName: 'lancedb-ex',
     });
 
     new StringParameter(this, 'LancedbExpressBucketNameParam', {
       parameterName: SSM_KEYS.LANCEDB_EXPRESS_BUCKET_NAME,
-      stringValue: expressStorage.bucketName,
+      stringValue: expressStorage.bucket.bucketName,
     });
 
     new StringParameter(this, 'LancedbExpressAzIdParam', {
       parameterName: SSM_KEYS.LANCEDB_EXPRESS_AZ_ID,
-      stringValue: 'use1-az4',
+      stringValue: 'apne2-az1',
     });
 
     // ElastiCache Serverless (Redis)

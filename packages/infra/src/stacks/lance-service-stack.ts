@@ -74,19 +74,18 @@ export class LanceServiceStack extends Stack {
     // Toka Lambda invoke
     tokaFunction.grantInvoke(lanceDbServiceFunction);
 
-    // S3 Express One Zone (LanceDB storage)
+    // S3 (LanceDB storage)
     lanceDbServiceFunction.addToRolePolicy(
       new iam.PolicyStatement({
         actions: [
-          's3express:CreateSession',
           's3:GetObject',
           's3:PutObject',
           's3:DeleteObject',
           's3:ListBucket',
         ],
         resources: [
-          `arn:aws:s3express:${this.region}:${this.account}:bucket/${lancedbExpressBucketName}`,
-          `arn:aws:s3express:${this.region}:${this.account}:bucket/${lancedbExpressBucketName}/*`,
+          `arn:aws:s3:::${lancedbExpressBucketName}`,
+          `arn:aws:s3:::${lancedbExpressBucketName}/*`,
         ],
       }),
     );
