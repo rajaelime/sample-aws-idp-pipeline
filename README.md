@@ -59,12 +59,12 @@ An AI-powered IDP prototype that transforms unstructured data into actionable in
   - Per-segment deep analysis with Claude Sonnet 4.6 Vision ReAct Agent
   - Video analysis with TwelveLabs Pegasus 1.2 + Amazon Nova Lite 2
   - Document summarization with Claude Sonnet 4.6 / Haiku 4.5
-  - 1024-dimensional vector embeddings with Nova Embed
+  - 1024-dimensional vector embeddings with Titan Text Embed v2
 
 - **[Hybrid Search](docs/src/content/docs/en/vectordb.md)**
   - LanceDB vector search + Full-Text Search (FTS)
   - Lindera / ICU4X tokenizer for keyword extraction
-  - Result reranking with Bedrock Cohere Rerank v3.5
+  - Result reranking with Bedrock Amazon Rerank v1
 
 - **[Knowledge Graph](docs/src/content/docs/en/graphdb.md)**
   - Neptune DB Serverless for core entity storage
@@ -73,9 +73,15 @@ An AI-powered IDP prototype that transforms unstructured data into actionable in
   - Graph traversal and keyword graph search to discover related pages
   - Project-level and document-level graph visualization
 
+- **Document Comparison**
+  - Compare documents against a reference (baseline) document
+  - LLM-based metadata comparison using extracted entities (names, dates, amounts, etc.)
+  - Per-project inspection checklist with pass/fail/warn status per item
+  - Dual access: MCP Gateway (for IDP Agent) + REST API (for external systems via Internal ALB)
+
 - **[AI Chat (Agent Core)](docs/src/content/docs/en/agent.md)**
   - IDP Agent on Bedrock Agent Core
-  - Tool invocation via MCP Gateway (search, graph, artifact management)
+  - Tool invocation via MCP Gateway (search, graph, artifact, compare tools)
   - S3-based session management for conversation continuity
   - Custom agents with project-specific system prompts
 
@@ -114,7 +120,7 @@ An AI-powered IDP prototype that transforms unstructured data into actionable in
 ├── LanceServiceStack     - LanceDB Service (Rust) + Toka tokenizer (Rust)
 ├── WorkflowStack         - Step Functions workflow (Distributed Map)
 ├── WebsocketStack        - WebSocket API, real-time notifications
-├── McpStack              - MCP Gateway (search, graph traverse, keyword graph, artifact tools)
+├── McpStack              - MCP Gateway (search, graph traverse, keyword graph, artifact, compare tools)
 ├── WorkerStack           - WebSocket message processing
 ├── AgentStack            - Bedrock Agent Core (IDP Agent)
 ├── WebcrawlerStack       - Web crawling agent (Bedrock Agent Core)
@@ -167,7 +173,7 @@ DynamoDB Streams (state change detection)
 
 #### 3. AI Chat (Agent Core)
 
-User queries are routed through API Gateway to Bedrock Agent Core. The IDP Agent invokes tools via MCP Gateway, performing hybrid search with the Search Tool, graph traversal with the Graph Tool, and managing outputs with the Artifact Tool. Session history is persisted to S3 to maintain conversation context.
+User queries are routed through API Gateway to Bedrock Agent Core. The IDP Agent invokes tools via MCP Gateway, performing hybrid search with the Search Tool, graph traversal with the Graph Tool, document comparison with the Compare Tool, and managing outputs with the Artifact Tool. Session history is persisted to S3 to maintain conversation context.
 
 ```
 User Query
@@ -178,12 +184,26 @@ User Query
             +- Search Tool Lambda -> LanceDB Service -> Hybrid Search (Vector + FTS)
             +- Search Tool Lambda -> Graph Service   -> Neptune (graph traversal)
             +- Search Tool Lambda -> LanceDB Service -> Keyword Graph Search
+            +- Compare Tool Lambda -> S3 + DynamoDB + Bedrock (document comparison)
             +- Artifact Tool Lambda -> S3
             '- Code Interpreter -> Python execution
           -> S3 (Session Load/Save)
 ```
 
-#### 4. Backend API (HTTP)
+#### 4. Document Comparison
+
+Documents can be compared against a reference baseline to identify metadata mismatches. The Compare Lambda loads pre-extracted entities (names, dates, amounts, organizations) and document summaries from S3, then uses an LLM to identify differences. A per-project inspection checklist can be configured to evaluate specific fields with pass/fail/warn status. Accessible via both MCP Gateway (agent) and REST API (external systems through Internal ALB).
+
+```
+Compare Request (MCP Gateway or REST API)
+  -> Compare Lambda
+    +- S3: Load analysis/summary.json + segments/graph_entities
+    +- DynamoDB: Load reference document ID + checklist
+    '- Bedrock (Claude Haiku 4.5): LLM-based metadata comparison
+      -> Response: checklist results + field mismatches + summary
+```
+
+#### 5. Backend API (HTTP)
 
 API Gateway HTTP (IAM Auth) connects through VPC Link to a Private ALB, then to ECS Fargate running FastAPI. It handles all data access including project/document management, workflow queries, hybrid search, chat sessions, custom agents, knowledge graph, and artifact management.
 
@@ -193,11 +213,12 @@ API Gateway HTTP (IAM Auth)
     +- DynamoDB     -- Project/document CRUD, workflow status
     +- LanceDB      -- Hybrid search (Vector + FTS) via Lambda invoke
     +- Neptune      -- Knowledge graph queries
-    +- Bedrock      -- Cohere Rerank v3.5
+    +- Bedrock      -- Amazon Rerank v1
     +- S3           -- Presigned URL, sessions (DuckDB), agents, artifacts
     +- Redis        -- Query cache
     +- Step Functions -- Reanalysis trigger
-    '- Lambda       -- QA Regenerator
+    +- Lambda       -- QA Regenerator
+    '- Lambda       -- Compare MCP (document comparison)
 ```
 
 ### Key Design Decisions
@@ -309,10 +330,11 @@ pnpm nx lint @idp-v2/infra --configuration=fix  # Auto-fix
 | Claude Sonnet 4.6 | Segment analysis / Agent | Vision ReAct Agent, deep document analysis |
 | Claude Sonnet 4.6 | Document summarization | Overall document summary generation |
 | Claude Haiku 4.5 | Search summarization | Lightweight model for search result organization |
+| Claude Haiku 4.5 | Document comparison | Entity/metadata comparison between documents |
 | TwelveLabs Pegasus 1.2 | Video visual analysis | Direct video understanding and scene analysis |
 | Amazon Nova Lite 2 | Video script extraction | Large-context STT-based video script extraction |
-| Nova Embed Text v2 | Vector embeddings | 1024-dimensional multimodal embeddings |
-| Cohere Rerank v3.5 | Search reranking | Hybrid search result optimization |
+| Amazon Titan Text Embed v2 | Vector embeddings | 1024-dimensional text embeddings |
+| Amazon Rerank v1 | Search reranking | Hybrid search result optimization |
 
 ### Preprocessing Models
 
@@ -331,6 +353,10 @@ pnpm nx lint @idp-v2/infra --configuration=fix  # Auto-fix
 | graph_traverse | Knowledge graph traversal from search results to discover related pages |
 | graph_keyword | Keyword similarity search via LanceDB graph keywords + Neptune traversal |
 | overview | Project document overview and summaries |
+| set_reference | Set a baseline document for comparison within a project |
+| compare | Compare a target document against the reference and identify mismatches |
+| set_checklist | Configure per-project inspection checklist (field, severity, description) |
+| get_checklist | Retrieve the current inspection checklist for a project |
 | save/load/edit_markdown | Create and edit markdown artifacts |
 | create_pdf, extract_pdf_text/tables | PDF generation and extraction |
 | create_docx, extract_docx_text/tables | Word document generation and extraction |
@@ -355,7 +381,8 @@ sample-aws-idp-pipeline/
 |   |   +-- routes/                # Page routes
 |   |   '-- components/            # React components
 |   +-- lambda/                    # MCP tool Lambdas
-|   |   '-- search-mcp/            # Search tools (hybrid search, graph traverse, keyword graph)
+|   |   +-- search-mcp/            # Search tools (hybrid search, graph traverse, keyword graph)
+|   |   '-- compare-mcp/           # Document comparison (set reference, compare, checklist)
 |   '-- infra/src/
 |       +-- stacks/                # 14 CDK stacks
 |       +-- functions/             # Python Lambda functions
@@ -387,6 +414,10 @@ sample-aws-idp-pipeline/
 | GET | `/chat/projects/{id}/sessions` | List chat sessions |
 | GET/PATCH/DELETE | `/chat/.../sessions/{id}` | Get / rename / delete session |
 | GET/POST/PUT/DELETE | `/projects/{id}/agents` | Custom agent CRUD |
+| POST | `/projects/{id}/compare/reference` | Set reference document for comparison |
+| POST | `/projects/{id}/compare` | Compare target vs reference document |
+| POST | `/projects/{id}/compare/checklist` | Set inspection checklist |
+| GET | `/projects/{id}/compare/checklist` | Get inspection checklist |
 | GET/DELETE | `/artifacts` | List / delete artifacts |
 | GET | `/projects/{id}/graph` | Project knowledge graph |
 | GET | `/projects/{id}/graph/documents/{id}` | Document-level graph |
@@ -423,8 +454,8 @@ sample-aws-idp-pipeline/
 ### AI / ML
 - Bedrock Agent Core (Strands SDK, ReAct pattern)
 - Bedrock Claude Sonnet 4.6 / Haiku 4.5
-- Bedrock Nova Embed (1024 dimensions)
-- Bedrock Cohere Rerank v3.5
+- Bedrock Amazon Titan Text Embed v2 (1024 dimensions)
+- Bedrock Amazon Rerank v1
 - TwelveLabs Pegasus 1.2 (video visual analysis)
 - Amazon Nova Lite 2 (video script extraction)
 - PaddleOCR (Lambda CPU + SageMaker GPU)
