@@ -48,7 +48,7 @@ export class CompareMcp extends Construct {
       environment: {
         DOCUMENT_STORAGE_BUCKET: documentStorageBucketName,
         BACKEND_TABLE_NAME: backendTableName,
-        COMPARE_MODEL_ID: 'global.anthropic.claude-haiku-4-5-20251001-v1:0',
+        COMPARE_MODEL_ID: 'global.anthropic.claude-sonnet-4-6',
       },
     });
 
