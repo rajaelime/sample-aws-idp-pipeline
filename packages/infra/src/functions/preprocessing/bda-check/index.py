@@ -16,6 +16,8 @@ from shared.ddb_client import (
     StepName,
 )
 
+BDA_REGION = os.environ.get('BDA_REGION', 'us-east-1')
+
 bda_runtime_client = None
 
 
@@ -24,7 +26,7 @@ def get_bda_runtime_client():
     if bda_runtime_client is None:
         bda_runtime_client = boto3.client(
             'bedrock-data-automation-runtime',
-            region_name=os.environ.get('AWS_REGION', 'us-east-1')
+            region_name=BDA_REGION,
         )
     return bda_runtime_client
 

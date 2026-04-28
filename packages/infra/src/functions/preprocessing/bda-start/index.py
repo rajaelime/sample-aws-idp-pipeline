@@ -20,6 +20,7 @@ from shared.ddb_client import (
 
 BDA_PROJECT_NAME = os.environ.get('BDA_PROJECT_NAME', 'idp-v2-bda-project')
 BDA_OUTPUT_BUCKET = os.environ.get('BDA_OUTPUT_BUCKET', '')
+BDA_REGION = os.environ.get('BDA_REGION', 'us-east-1')
 
 SUPPORTED_MIME_TYPES = {
     'application/pdf',
@@ -54,7 +55,7 @@ def get_bda_client():
     if bda_client is None:
         bda_client = boto3.client(
             'bedrock-data-automation',
-            region_name=os.environ.get('AWS_REGION', 'us-east-1')
+            region_name=BDA_REGION,
         )
     return bda_client
 
@@ -64,7 +65,7 @@ def get_bda_runtime_client():
     if bda_runtime_client is None:
         bda_runtime_client = boto3.client(
             'bedrock-data-automation-runtime',
-            region_name=os.environ.get('AWS_REGION', 'us-east-1')
+            region_name=BDA_REGION,
         )
     return bda_runtime_client
 
@@ -148,8 +149,6 @@ def handler(event, context):
         output_prefix = f'bda-output/{workflow_id}/{timestamp}'
     output_uri = f's3://{BDA_OUTPUT_BUCKET}/{output_prefix}'
 
-    session = boto3.Session()
-    region = session.region_name or 'us-east-1'
     sts_client = boto3.client('sts')
     account_id = sts_client.get_caller_identity()['Account']
 
@@ -160,7 +159,7 @@ def handler(event, context):
             'dataAutomationProjectArn': project_arn,
             'stage': 'LIVE'
         },
-        dataAutomationProfileArn=f'arn:aws:bedrock:{region}:{account_id}:data-automation-profile/us.data-automation-v1'
+        dataAutomationProfileArn=f'arn:aws:bedrock:{BDA_REGION}:{account_id}:data-automation-profile/us.data-automation-v1'
     )
 
     invocation_arn = response['invocationArn']

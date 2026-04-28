@@ -933,6 +933,16 @@ export function useChatSession({ projectId }: UseChatSessionOptions) {
 
         if (userMessage.content) {
           contentBlocks.push({ text: userMessage.content });
+        } else if (
+          contentBlocks.some((b) => b.document) &&
+          !contentBlocks.some((b) => b.text)
+        ) {
+          contentBlocks.push({
+            text: t(
+              'chat.defaultDocumentPrompt',
+              'Please analyze the attached document.',
+            ),
+          });
         }
 
         await invokeAgent(

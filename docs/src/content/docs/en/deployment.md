@@ -43,7 +43,7 @@ Click the CloudShell icon at the top of the AWS Console, or search for "CloudShe
 ### Step 2. Run the Deploy Script
 
 ```bash
-git clone https://github.com/aws-samples/sample-aws-idp-pipeline.git
+git clone https://github.com/rajaelime/sample-aws-idp-pipeline.git
 cd sample-aws-idp-pipeline
 chmod +x ./deploy.sh
 ./deploy.sh
@@ -74,7 +74,7 @@ Review the configuration and enter `y` to start deployment.
 Configuration:
 --------------
 Admin Email: your-email@example.com
-Repository:  https://github.com/aws-samples/sample-aws-idp-pipeline.git
+Repository:  https://github.com/rajaelime/sample-aws-idp-pipeline.git
 Version:     main
 Stack Name:  sample-aws-idp-pipeline-codebuild
 
@@ -173,7 +173,7 @@ When deployment completes successfully, the following information is displayed.
 
 Options:
   --admin-email EMAIL   Admin email (skip interactive prompt)
-  --repo-url URL        Repository URL (default: github.com/aws-samples/...)
+  --repo-url URL        Repository URL (default: github.com/rajaelime/...)
   --version VERSION     Branch or tag to deploy (default: main)
   --stack-name NAME     CloudFormation stack name (default: sample-aws-idp-pipeline-codebuild)
   --info                Show deployed application URL

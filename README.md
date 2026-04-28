@@ -230,7 +230,7 @@ API Gateway HTTP (IAM Auth)
 
 ```bash
 # Clone the repository
-git clone https://github.com/aws-samples/sample-aws-idp-pipeline.git
+git clone https://github.com/rajaelime/sample-aws-idp-pipeline.git
 cd sample-aws-idp-pipeline
 
 # Install dependencies

@@ -96,6 +96,10 @@ async def invoke(request: dict):
         agent_id=req.agent_id,
     ) as agent:
         content = [block.to_strands() for block in req.prompt]
+        has_document = any(block.document for block in req.prompt)
+        has_text = any(block.text for block in req.prompt)
+        if has_document and not has_text:
+            content.append({"text": "Please analyze the attached document."})
         stream = agent.stream_async(content)
         async for event in stream:
             for filtered in filter_stream_event(event):

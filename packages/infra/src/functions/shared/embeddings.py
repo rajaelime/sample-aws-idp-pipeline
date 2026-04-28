@@ -26,7 +26,7 @@ def strip_markup(text: str) -> str:
 
 
 EMBEDDING_MODEL_ID = os.environ.get(
-    'EMBEDDING_MODEL_ID', 'amazon.nova-2-multimodal-embeddings-v1:0'
+    'EMBEDDING_MODEL_ID', 'amazon.titan-embed-text-v2:0'
 )
 
 

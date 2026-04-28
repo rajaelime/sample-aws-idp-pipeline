@@ -7,7 +7,7 @@ import type { HybridResult } from '../types.js';
 
 const client = new BedrockAgentRuntimeClient({});
 
-const MODEL_ID = process.env.RERANK_MODEL_ID ?? 'cohere.rerank-v3-5:0';
+const MODEL_ID = process.env.RERANK_MODEL_ID ?? 'amazon.rerank-v1:0';
 const REGION = process.env.AWS_REGION ?? 'us-east-1';
 
 function toModelArn(modelId: string): string {

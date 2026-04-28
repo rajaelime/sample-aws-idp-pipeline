@@ -12,10 +12,10 @@ echo "==========================================================================
 echo ""
 
 # Default parameters
-REPO_URL="https://github.com/aws-samples/sample-aws-idp-pipeline.git"
+REPO_URL="https://github.com/rajaelime/sample-aws-idp-pipeline.git"
 VERSION="main"
 STACK_NAME="sample-aws-idp-pipeline-codebuild"
-TEMPLATE_URL_BASE="https://raw.githubusercontent.com/aws-samples/sample-aws-idp-pipeline"
+TEMPLATE_URL_BASE="https://raw.githubusercontent.com/rajaelime/sample-aws-idp-pipeline"
 TEMPLATE_FILE="/tmp/deploy-codebuild.yml"
 ADMIN_USER_EMAIL=""
 DEPLOY_STACKS=""
@@ -49,7 +49,7 @@ while [[ "$#" -gt 0 ]]; do
             echo ""
             echo "Options:"
             echo "  --admin-email EMAIL   Admin user email for Cognito (required)"
-            echo "  --repo-url URL        Repository URL (default: github.com/aws-samples/sample-aws-idp-pipeline)"
+            echo "  --repo-url URL        Repository URL (default: github.com/rajaelime/sample-aws-idp-pipeline)"
             echo "  --version VERSION     Branch or tag to deploy (default: main)"
             echo "  --stack-name NAME     CloudFormation stack name (default: sample-aws-idp-pipeline-codebuild)"
             echo "  --stacks STACKS       Deploy specific CDK stacks only (e.g. 'IDP-V2-Workflow IDP-V2-Storage')"

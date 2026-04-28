@@ -362,6 +362,7 @@ export class WorkflowStack extends Stack {
       memorySize: 1024,
       environment: {
         BDA_OUTPUT_BUCKET: this.documentBucket.bucketName,
+        BDA_REGION: 'us-east-1',
         BACKEND_TABLE_NAME: backendTableName,
         EMBEDDING_MODEL_ID: models.embedding,
       },

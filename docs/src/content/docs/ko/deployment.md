@@ -43,7 +43,7 @@ AWS Console 상단의 CloudShell 아이콘을 클릭하거나, 검색창에 "Clo
 ### Step 2. 배포 스크립트 실행
 
 ```bash
-git clone https://github.com/aws-samples/sample-aws-idp-pipeline.git
+git clone https://github.com/rajaelime/sample-aws-idp-pipeline.git
 cd sample-aws-idp-pipeline
 chmod +x ./deploy.sh
 ./deploy.sh
@@ -74,7 +74,7 @@ Enter admin user email address: your-email@example.com
 Configuration:
 --------------
 Admin Email: your-email@example.com
-Repository:  https://github.com/aws-samples/sample-aws-idp-pipeline.git
+Repository:  https://github.com/rajaelime/sample-aws-idp-pipeline.git
 Version:     main
 Stack Name:  sample-aws-idp-pipeline-codebuild
 
@@ -173,7 +173,7 @@ Phase: BUILD
 
 Options:
   --admin-email EMAIL   관리자 이메일 (대화형 입력 생략)
-  --repo-url URL        리포지토리 URL (기본: github.com/aws-samples/...)
+  --repo-url URL        리포지토리 URL (기본: github.com/rajaelime/...)
   --version VERSION     배포할 브랜치 또는 태그 (기본: main)
   --stack-name NAME     CloudFormation 스택 이름 (기본: sample-aws-idp-pipeline-codebuild)
   --info                배포된 애플리케이션 URL 조회
