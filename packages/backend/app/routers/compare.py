@@ -54,11 +54,42 @@ class CompareRequest(BaseModel):
     fields: list[str] | None = None
 
 
+class ChecklistItem(BaseModel):
+    field: str
+    description: str = ""
+    severity: str = "medium"
+
+
+class SetChecklistRequest(BaseModel):
+    items: list[ChecklistItem]
+
+
+class SetChecklistResponse(BaseModel):
+    message: str
+    items: list[ChecklistItem]
+
+
+class GetChecklistResponse(BaseModel):
+    project_id: str
+    items: list[ChecklistItem]
+
+
+class ChecklistResult(BaseModel):
+    field: str
+    description: str
+    expected_severity: str
+    status: str
+    reference_value: str
+    target_value: str
+    explanation: str
+
+
 class FieldMismatch(BaseModel):
     field: str
     reference_value: str
     target_value: str
     severity: str
+    status: str = "fail"
     explanation: str
 
 
@@ -68,6 +99,7 @@ class CompareResponse(BaseModel):
     reference_name: str
     target_name: str
     total_mismatches: int
+    checklist_results: list[ChecklistResult] | None = None
     mismatches: list[FieldMismatch]
     summary: str
 
@@ -81,6 +113,27 @@ def set_reference(project_id: str, request: SetReferenceRequest) -> SetReference
         "action": "set_reference",
     })
     return SetReferenceResponse(**result)
+
+
+@router.post("/checklist")
+def set_checklist(project_id: str, request: SetChecklistRequest) -> SetChecklistResponse:
+    """Set the inspection checklist for document comparison."""
+    result = _invoke_compare_lambda({
+        "project_id": project_id,
+        "items": [item.model_dump() for item in request.items],
+        "action": "set_checklist",
+    })
+    return SetChecklistResponse(**result)
+
+
+@router.get("/checklist")
+def get_checklist(project_id: str) -> GetChecklistResponse:
+    """Get the current inspection checklist for a project."""
+    result = _invoke_compare_lambda({
+        "project_id": project_id,
+        "action": "get_checklist",
+    })
+    return GetChecklistResponse(**result)
 
 
 @router.post("")

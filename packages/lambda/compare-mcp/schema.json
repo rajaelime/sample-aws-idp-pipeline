@@ -19,7 +19,7 @@
   },
   {
     "name": "compare",
-    "description": "Compare a target document against the reference document and identify metadata mismatches including entities (people, organizations, dates, amounts), key terms, and structural differences. Returns a detailed mismatch report with severity levels.",
+    "description": "Compare a target document against the reference document and identify metadata mismatches. If a checklist is configured for the project, each checklist item is evaluated with pass/fail/warn status. Returns a detailed mismatch report with severity levels.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -38,10 +38,61 @@
         "fields": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Optional list of specific fields to compare (e.g., ['dates', 'amounts', 'parties']). If not provided, compares all available metadata."
+          "description": "Optional list of specific fields to compare. If not provided and a checklist exists, the checklist fields are used automatically."
         }
       },
       "required": ["project_id", "target_document_id"]
+    }
+  },
+  {
+    "name": "set_checklist",
+    "description": "Set the inspection checklist for a project. When a checklist is configured, the compare tool automatically evaluates each item with pass/fail/warn status.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "The unique identifier of the project"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "description": "The field name to check (e.g., 'contract_date', 'total_amount', 'parties')"
+              },
+              "description": {
+                "type": "string",
+                "description": "Description of what to check for this field"
+              },
+              "severity": {
+                "type": "string",
+                "enum": ["high", "medium", "low"],
+                "description": "How critical this check is (default: medium)"
+              }
+            },
+            "required": ["field"]
+          },
+          "description": "List of checklist items to inspect during comparison"
+        }
+      },
+      "required": ["project_id", "items"]
+    }
+  },
+  {
+    "name": "get_checklist",
+    "description": "Get the current inspection checklist configured for a project.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "The unique identifier of the project"
+        }
+      },
+      "required": ["project_id"]
     }
   }
 ]

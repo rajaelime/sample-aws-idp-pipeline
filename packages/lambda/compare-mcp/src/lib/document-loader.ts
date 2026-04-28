@@ -9,7 +9,7 @@ import {
   GetItemCommand,
   UpdateItemCommand,
 } from '@aws-sdk/client-dynamodb';
-import type { DocumentMeta, EntityInfo } from '../types.js';
+import type { DocumentMeta, EntityInfo, ChecklistItem } from '../types.js';
 
 const s3 = new S3Client({});
 const ddb = new DynamoDBClient({});
@@ -162,6 +162,49 @@ export async function setReferenceDocumentId(
       ExpressionAttributeNames: { '#data': 'data' },
       ExpressionAttributeValues: {
         ':data': { M: { document_id: { S: documentId } } },
+        ':now': { S: now },
+      },
+    }),
+  );
+}
+
+export async function getChecklist(
+  projectId: string,
+): Promise<ChecklistItem[]> {
+  try {
+    const res = await ddb.send(
+      new GetItemCommand({
+        TableName: TABLE_NAME,
+        Key: {
+          PK: { S: `PROJ#${projectId}` },
+          SK: { S: 'REF#CHECKLIST' },
+        },
+      }),
+    );
+    const json = res.Item?.data?.S;
+    return json ? (JSON.parse(json) as ChecklistItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function setChecklist(
+  projectId: string,
+  items: ChecklistItem[],
+): Promise<void> {
+  const now = new Date().toISOString();
+  await ddb.send(
+    new UpdateItemCommand({
+      TableName: TABLE_NAME,
+      Key: {
+        PK: { S: `PROJ#${projectId}` },
+        SK: { S: 'REF#CHECKLIST' },
+      },
+      UpdateExpression:
+        'SET #data = :data, updated_at = :now, created_at = if_not_exists(created_at, :now)',
+      ExpressionAttributeNames: { '#data': 'data' },
+      ExpressionAttributeValues: {
+        ':data': { S: JSON.stringify(items) },
         ':now': { S: now },
       },
     }),

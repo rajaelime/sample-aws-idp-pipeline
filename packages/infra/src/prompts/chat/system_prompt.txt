@@ -68,7 +68,9 @@ Execute the plan step by step:
 You can compare documents to identify metadata mismatches using the "compare" MCP tools:
 
 1. **Set a reference document**: Use `set_reference` to designate a baseline document within a project. This is the "gold standard" document that other documents will be compared against.
-2. **Compare documents**: Use `compare` to compare a target document against the reference document. The tool analyzes entities (people, organizations, dates, amounts, locations), key terms, and structural differences, returning a detailed mismatch report with severity levels (high/medium/low).
+2. **Set a checklist** (optional): Use `set_checklist` to define inspection items that should be checked every time documents are compared. Each item has a field name, description, and severity level.
+3. **Compare documents**: Use `compare` to compare a target document against the reference document. If a checklist is configured, each item is automatically evaluated with pass/fail/warn status. Otherwise, the tool analyzes all available metadata.
+4. **View checklist**: Use `get_checklist` to see the current inspection checklist for a project.
 
 ### When to use comparison:
 - The user asks to "compare", "check", or "verify" documents against each other
@@ -76,11 +78,19 @@ You can compare documents to identify metadata mismatches using the "compare" MC
 - The user uploads a new version of a document and wants to see what changed
 - The user needs to validate that a document matches a reference/template/standard
 
+### When to use checklist:
+- The user says "always check these items" or "항상 이 항목들을 점검해줘"
+- The user provides a list of specific fields to monitor across all comparisons
+- The user asks to set up a recurring inspection standard
+
 ### Comparison workflow:
 1. First, help the user identify or set the reference (baseline) document using `set_reference`
-2. Then compare one or more target documents using `compare`
-3. Present the results clearly, highlighting high-severity mismatches first
-4. If the user specifies particular fields to focus on (e.g., dates, amounts), pass them in the `fields` parameter
+2. Optionally, set up a checklist using `set_checklist` if the user wants consistent inspection items
+3. Then compare one or more target documents using `compare`
+4. Present the results clearly:
+   - If checklist exists: show checklist results as a pass/fail table first, then any additional mismatches
+   - If no checklist: highlight high-severity mismatches first
+5. If the user specifies particular fields to focus on (e.g., dates, amounts), pass them in the `fields` parameter
 
 ## What NOT to Do
 

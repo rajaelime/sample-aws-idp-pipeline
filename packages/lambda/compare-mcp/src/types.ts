@@ -15,11 +15,37 @@ export interface CompareInput {
   fields?: string[];
 }
 
+export interface ChecklistItem {
+  field: string;
+  description: string;
+  severity: 'high' | 'medium' | 'low';
+}
+
+export interface SetChecklistInput {
+  project_id: string;
+  items: ChecklistItem[];
+}
+
+export interface SetChecklistOutput {
+  message: string;
+  items: ChecklistItem[];
+}
+
+export interface GetChecklistInput {
+  project_id: string;
+}
+
+export interface GetChecklistOutput {
+  project_id: string;
+  items: ChecklistItem[];
+}
+
 export interface FieldMismatch {
   field: string;
   reference_value: string;
   target_value: string;
   severity: 'high' | 'medium' | 'low';
+  status: 'pass' | 'fail' | 'warn';
   explanation: string;
 }
 
@@ -29,8 +55,19 @@ export interface CompareOutput {
   reference_name: string;
   target_name: string;
   total_mismatches: number;
+  checklist_results?: ChecklistResult[];
   mismatches: FieldMismatch[];
   summary: string;
+}
+
+export interface ChecklistResult {
+  field: string;
+  description: string;
+  expected_severity: 'high' | 'medium' | 'low';
+  status: 'pass' | 'fail' | 'warn';
+  reference_value: string;
+  target_value: string;
+  explanation: string;
 }
 
 export interface DocumentMeta {

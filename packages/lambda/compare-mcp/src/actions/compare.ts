@@ -1,6 +1,7 @@
 import {
   loadDocumentMeta,
   getReferenceDocumentId,
+  getChecklist,
 } from '../lib/document-loader.js';
 import { compareDocuments } from '../lib/comparator.js';
 import type { CompareInput, CompareOutput } from '../types.js';
@@ -8,9 +9,12 @@ import type { CompareInput, CompareOutput } from '../types.js';
 export async function handler(event: CompareInput): Promise<CompareOutput> {
   const { project_id, target_document_id, fields } = event;
 
-  const refDocId =
-    event.reference_document_id ??
-    (await getReferenceDocumentId(project_id));
+  const [refDocId, checklist] = await Promise.all([
+    event.reference_document_id
+      ? Promise.resolve(event.reference_document_id)
+      : getReferenceDocumentId(project_id),
+    getChecklist(project_id),
+  ]);
 
   if (!refDocId) {
     throw new Error(
@@ -38,5 +42,8 @@ export async function handler(event: CompareInput): Promise<CompareOutput> {
     );
   }
 
-  return compareDocuments(reference, target, fields);
+  const effectiveFields =
+    fields ?? (checklist.length > 0 ? checklist.map((c) => c.field) : undefined);
+
+  return compareDocuments(reference, target, effectiveFields, checklist);
 }

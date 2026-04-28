@@ -2,7 +2,13 @@ import {
   BedrockRuntimeClient,
   InvokeModelCommand,
 } from '@aws-sdk/client-bedrock-runtime';
-import type { DocumentMeta, FieldMismatch, CompareOutput } from '../types.js';
+import type {
+  DocumentMeta,
+  FieldMismatch,
+  CompareOutput,
+  ChecklistItem,
+  ChecklistResult,
+} from '../types.js';
 
 const bedrock = new BedrockRuntimeClient({});
 const MODEL_ID =
@@ -12,11 +18,13 @@ export async function compareDocuments(
   reference: DocumentMeta,
   target: DocumentMeta,
   fields?: string[],
+  checklist?: ChecklistItem[],
 ): Promise<CompareOutput> {
   const refEntities = reference.entities.map((e) => e.name);
   const targetEntities = target.entities.map((e) => e.name);
 
-  const prompt = buildComparePrompt(reference, target, fields);
+  const prompt = buildComparePrompt(reference, target, fields, checklist);
+  const systemPrompt = checklist?.length ? CHECKLIST_SYSTEM_PROMPT : SYSTEM_PROMPT;
 
   const response = await bedrock.send(
     new InvokeModelCommand({
@@ -27,7 +35,7 @@ export async function compareDocuments(
         anthropic_version: 'bedrock-2023-05-31',
         max_tokens: 4096,
         messages: [{ role: 'user', content: prompt }],
-        system: SYSTEM_PROMPT,
+        system: systemPrompt,
       }),
     }),
   );
@@ -43,6 +51,7 @@ export async function compareDocuments(
   try {
     const parsed = JSON.parse(jsonMatch[0]) as {
       mismatches: FieldMismatch[];
+      checklist_results?: ChecklistResult[];
       summary: string;
     };
 
@@ -52,6 +61,7 @@ export async function compareDocuments(
       reference_name: reference.name,
       target_name: target.name,
       total_mismatches: parsed.mismatches.length,
+      checklist_results: parsed.checklist_results,
       mismatches: parsed.mismatches,
       summary: parsed.summary,
     };
@@ -69,6 +79,7 @@ Return ONLY a JSON object with this exact structure:
       "reference_value": "value in reference document",
       "target_value": "value in target document",
       "severity": "high|medium|low",
+      "status": "fail|warn|pass",
       "explanation": "brief explanation of the mismatch"
     }
   ],
@@ -78,20 +89,78 @@ Return ONLY a JSON object with this exact structure:
 Severity guidelines:
 - high: Critical data discrepancies (amounts, dates, parties, key terms)
 - medium: Notable differences in content or structure
-- low: Minor differences in phrasing or formatting`;
+- low: Minor differences in phrasing or formatting
+
+Status guidelines:
+- fail: Values are clearly different
+- warn: Values are ambiguous or partially matching
+- pass: Values match (only include if explicitly requested)`;
+
+const CHECKLIST_SYSTEM_PROMPT = `You are a document comparison analyst. Compare two documents against a checklist of required fields.
+Return ONLY a JSON object with this exact structure:
+{
+  "checklist_results": [
+    {
+      "field": "checklist field name",
+      "description": "what was being checked",
+      "expected_severity": "high|medium|low",
+      "status": "pass|fail|warn",
+      "reference_value": "value found in reference document",
+      "target_value": "value found in target document",
+      "explanation": "brief explanation of the result"
+    }
+  ],
+  "mismatches": [
+    {
+      "field": "field name",
+      "reference_value": "value in reference",
+      "target_value": "value in target",
+      "severity": "high|medium|low",
+      "status": "fail|warn",
+      "explanation": "brief explanation"
+    }
+  ],
+  "summary": "Overall comparison summary in 2-3 sentences including checklist pass rate (e.g., 3/5 passed)"
+}
+
+Rules:
+- checklist_results MUST contain one entry per checklist item, in order
+- mismatches should only contain items with status "fail" or "warn"
+- If a checklist field cannot be found in either document, set status to "warn" with explanation
+- Status: "pass" = values match, "fail" = values clearly differ, "warn" = ambiguous or not found`;
 
 function buildComparePrompt(
   reference: DocumentMeta,
   target: DocumentMeta,
   fields?: string[],
+  checklist?: ChecklistItem[],
 ): string {
-  const fieldInstruction = fields?.length
-    ? `Focus on these fields: ${fields.join(', ')}`
-    : 'Compare all available metadata fields including: entities (people, organizations, dates, amounts, locations), document structure, key terms, and content themes.';
+  let instruction: string;
+
+  if (checklist?.length) {
+    const checklistText = checklist
+      .map((c, i) => `${i + 1}. **${c.field}** (${c.severity}): ${c.description}`)
+      .join('\n');
+    instruction = `Evaluate EACH of the following checklist items:\n${checklistText}`;
+
+    if (fields?.length) {
+      const extraFields = fields.filter(
+        (f) => !checklist.some((c) => c.field === f),
+      );
+      if (extraFields.length) {
+        instruction += `\n\nAlso check these additional fields: ${extraFields.join(', ')}`;
+      }
+    }
+  } else if (fields?.length) {
+    instruction = `Focus on these fields: ${fields.join(', ')}`;
+  } else {
+    instruction =
+      'Compare all available metadata fields including: entities (people, organizations, dates, amounts, locations), document structure, key terms, and content themes.';
+  }
 
   return `Compare the following two documents and identify mismatches.
 
-${fieldInstruction}
+${instruction}
 
 ## Reference Document: "${reference.name}"
 - Pages: ${reference.total_pages}
@@ -123,7 +192,8 @@ function buildFallbackResult(
       reference_value: missingInTarget.join(', '),
       target_value: '(missing)',
       severity: 'medium',
-      explanation: `Entities present in reference but missing in target document`,
+      status: 'fail',
+      explanation: 'Entities present in reference but missing in target document',
     });
   }
 
@@ -133,7 +203,8 @@ function buildFallbackResult(
       reference_value: '(missing)',
       target_value: missingInRef.join(', '),
       severity: 'medium',
-      explanation: `Entities present in target but missing in reference document`,
+      status: 'warn',
+      explanation: 'Entities present in target but missing in reference document',
     });
   }
 

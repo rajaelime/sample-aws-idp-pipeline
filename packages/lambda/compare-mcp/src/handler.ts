@@ -1,4 +1,9 @@
-import type { SetReferenceInput, CompareInput } from './types.js';
+import type {
+  SetReferenceInput,
+  CompareInput,
+  SetChecklistInput,
+  GetChecklistInput,
+} from './types.js';
 
 interface LambdaContext {
   clientContext?: {
@@ -26,6 +31,14 @@ export const handler = async (event: unknown, context: LambdaContext) => {
     case 'compare': {
       const { handler: compare } = await import('./actions/compare.js');
       return compare(eventObj as unknown as CompareInput);
+    }
+    case 'set_checklist': {
+      const { handler: setCl } = await import('./actions/set-checklist.js');
+      return setCl(eventObj as unknown as SetChecklistInput);
+    }
+    case 'get_checklist': {
+      const { handler: getCl } = await import('./actions/get-checklist.js');
+      return getCl(eventObj as unknown as GetChecklistInput);
     }
     default:
       throw new Error(`Unknown action: ${action}`);
