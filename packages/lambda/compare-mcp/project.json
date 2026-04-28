@@ -1,0 +1,17 @@
+{
+  "name": "compare-mcp",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/lambda/compare-mcp/src",
+  "projectType": "library",
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "packages/lambda/compare-mcp/dist",
+        "main": "packages/lambda/compare-mcp/src/index.ts",
+        "tsConfig": "packages/lambda/compare-mcp/tsconfig.json"
+      }
+    }
+  }
+}

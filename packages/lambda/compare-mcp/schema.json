@@ -1,0 +1,47 @@
+[
+  {
+    "name": "set_reference",
+    "description": "Set a document as the reference (baseline) document for comparison within a project. All subsequent comparisons will use this document as the standard.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "The unique identifier of the project"
+        },
+        "document_id": {
+          "type": "string",
+          "description": "The document ID to set as the reference (baseline) document"
+        }
+      },
+      "required": ["project_id", "document_id"]
+    }
+  },
+  {
+    "name": "compare",
+    "description": "Compare a target document against the reference document and identify metadata mismatches including entities (people, organizations, dates, amounts), key terms, and structural differences. Returns a detailed mismatch report with severity levels.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "The unique identifier of the project"
+        },
+        "target_document_id": {
+          "type": "string",
+          "description": "The document ID to compare against the reference"
+        },
+        "reference_document_id": {
+          "type": "string",
+          "description": "Optional override for the reference document ID. If not provided, uses the project's designated reference document."
+        },
+        "fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Optional list of specific fields to compare (e.g., ['dates', 'amounts', 'parties']). If not provided, compares all available metadata."
+        }
+      },
+      "required": ["project_id", "target_document_id"]
+    }
+  }
+]

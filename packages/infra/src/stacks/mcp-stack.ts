@@ -6,6 +6,7 @@ import {
   SearchMcp,
   ImageMcp,
   QaMcp,
+  CompareMcp,
   SSM_KEYS,
 } from ':idp-v2/common-constructs';
 import * as agentcore from '@aws-cdk/aws-bedrock-agentcore-alpha';
@@ -14,6 +15,7 @@ import * as path from 'path';
 export class McpStack extends Stack {
   public readonly searchMcp: SearchMcp;
   public readonly qaMcp: QaMcp;
+  public readonly compareMcp: CompareMcp;
   public readonly imageMcp?: ImageMcp;
   public readonly gateway: agentcore.Gateway;
 
@@ -74,6 +76,23 @@ export class McpStack extends Stack {
     });
     this.qaMcp.function.grantInvoke(this.gateway.role);
     qaTarget.node.addDependency(this.gateway.role);
+
+    this.compareMcp = new CompareMcp(this, 'CompareMcp');
+
+    const compareTarget = this.gateway.addLambdaTarget('CompareMcpTarget', {
+      gatewayTargetName: 'compare',
+      description:
+        'Document comparison tool: Set a reference (baseline) document and compare other documents against it to identify metadata mismatches including entities, dates, amounts, parties, and key terms.',
+      lambdaFunction: this.compareMcp.function,
+      toolSchema: agentcore.ToolSchema.fromLocalAsset(
+        path.resolve(
+          process.cwd(),
+          '../../packages/lambda/compare-mcp/schema.json',
+        ),
+      ),
+    });
+    this.compareMcp.function.grantInvoke(this.gateway.role);
+    compareTarget.node.addDependency(this.gateway.role);
 
     // ImageMcp is optional - enable with context: enableImageMcp=true in cdk.json
     if (this.node.tryGetContext('enableImageMcp')) {

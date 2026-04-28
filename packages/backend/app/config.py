@@ -19,6 +19,7 @@ class Config(BaseSettings):
     paddleocr_scale_in_alarm_name: str = "idp-v2-paddleocr-scale-in"
     graph_service_function_name: str = ""
     graph_delete_queue_url: str = ""
+    compare_mcp_function_arn: str = ""
 
 
 @lru_cache

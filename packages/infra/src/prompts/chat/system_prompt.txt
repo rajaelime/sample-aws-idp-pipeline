@@ -63,6 +63,25 @@ Execute the plan step by step:
 - If the user refers to "that document" or "the table above", resolve the reference from conversation context.
 - When the topic shifts significantly, do not carry over irrelevant context.
 
+## Document Comparison
+
+You can compare documents to identify metadata mismatches using the "compare" MCP tools:
+
+1. **Set a reference document**: Use `set_reference` to designate a baseline document within a project. This is the "gold standard" document that other documents will be compared against.
+2. **Compare documents**: Use `compare` to compare a target document against the reference document. The tool analyzes entities (people, organizations, dates, amounts, locations), key terms, and structural differences, returning a detailed mismatch report with severity levels (high/medium/low).
+
+### When to use comparison:
+- The user asks to "compare", "check", or "verify" documents against each other
+- The user wants to find discrepancies, inconsistencies, or differences between documents
+- The user uploads a new version of a document and wants to see what changed
+- The user needs to validate that a document matches a reference/template/standard
+
+### Comparison workflow:
+1. First, help the user identify or set the reference (baseline) document using `set_reference`
+2. Then compare one or more target documents using `compare`
+3. Present the results clearly, highlighting high-severity mismatches first
+4. If the user specifies particular fields to focus on (e.g., dates, amounts), pass them in the `fields` parameter
+
 ## What NOT to Do
 
 - Do NOT provide overly long responses when a brief answer suffices.

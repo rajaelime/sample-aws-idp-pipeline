@@ -123,6 +123,10 @@ export class Backend extends Construct {
       this,
       SSM_KEYS.GRAPH_DELETE_QUEUE_URL,
     );
+    const compareMcpFunctionArn = StringParameter.valueForStringParameter(
+      this,
+      SSM_KEYS.COMPARE_MCP_FUNCTION_ARN,
+    );
 
     this.service = new ApplicationLoadBalancedFargateService(this, 'Service', {
       cluster,
@@ -148,6 +152,7 @@ export class Backend extends Construct {
           LANCEDB_FUNCTION_NAME: lancedbFunctionArn,
           GRAPH_SERVICE_FUNCTION_NAME: graphServiceFunctionArn,
           GRAPH_DELETE_QUEUE_URL: graphDeleteQueueUrl,
+          COMPARE_MCP_FUNCTION_ARN: compareMcpFunctionArn,
         },
       },
       runtimePlatform: {
@@ -220,6 +225,7 @@ export class Backend extends Construct {
           lancedbFunctionArn,
           graphServiceFunctionArn,
           graphBuilderFunctionArn,
+          compareMcpFunctionArn,
         ],
       }),
     );

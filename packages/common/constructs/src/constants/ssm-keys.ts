@@ -43,4 +43,7 @@ export const SSM_KEYS = {
   // Lance Service
   TOKA_FUNCTION_NAME: '/idp-v2/lance-service/toka/function-name',
   LANCE_SERVICE_FUNCTION_ARN: '/idp-v2/lance-service/function-arn',
+  // Compare MCP
+  COMPARE_MCP_FUNCTION_ARN: '/idp-v2/mcp/compare/function-arn',
+  COMPARE_MCP_ROLE_ARN: '/idp-v2/mcp/compare/role-arn',
 } as const;
